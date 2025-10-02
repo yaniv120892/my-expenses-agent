@@ -1,19 +1,19 @@
-import * as XLSX from 'xlsx';
-import { AIProvider } from './aiProvider';
-import { FileService } from '../types/fileService';
-import { 
-  ExtractionResult, 
-  ExtractedTransaction, 
-  ExtractedMetadata, 
+import * as XLSX from "xlsx";
+import { AIProvider } from "./aiProvider";
+import { FileService } from "../types/fileService";
+import {
+  ExtractionResult,
+  ExtractedTransaction,
+  ExtractedMetadata,
   StructureAnalysis,
-  ProcessingContext
-} from '../types';
-import { logger } from '../utils/logger';
-import { 
+  ProcessingContext,
+} from "../types";
+import { logger } from "../utils/logger";
+import {
   ExtractedTransactionSchema,
   ExtractedMetadataSchema,
-  StructureAnalysisSchema
-} from '../types/validation';
+  StructureAnalysisSchema,
+} from "../types/validation";
 import {
   ExcelWorkbook,
   ExcelSheet,
@@ -22,8 +22,8 @@ import {
   ColumnMappings,
   AIStructureAnalysis,
   AIMetadataExtraction,
-  AITransactionExtraction
-} from '../types/excelTypes';
+  AITransactionExtraction,
+} from "../types/excelTypes";
 
 export class ExcelExtractionAgent {
   private aiProvider: AIProvider;
@@ -39,52 +39,65 @@ export class ExcelExtractionAgent {
     const processingNotes: string[] = [];
 
     try {
-      logger.info('Starting Excel extraction', { 
-        requestId: context.requestId, 
+      logger.info("Starting Excel extraction", {
+        requestId: context.requestId,
         filename: context.filename,
-        provider: this.fileService.getProvider()
+        provider: this.fileService.getProvider(),
       });
 
       const workbook = await this.downloadAndParseFile(context.fileUrl);
-      processingNotes.push(`File downloaded and parsed successfully from ${this.fileService.getProvider()}`);
+      processingNotes.push(
+        `File downloaded and parsed successfully from ${this.fileService.getProvider()}`
+      );
 
       const structure = await this.analyzeStructure(workbook, context);
-      processingNotes.push(`Structure analysis completed: ${structure.summary}`);
+      processingNotes.push(
+        `Structure analysis completed: ${structure.summary}`
+      );
 
       const metadata = await this.extractMetadata(workbook, context, structure);
-      processingNotes.push(`Metadata extracted with confidence: ${metadata.confidence}`);
+      processingNotes.push(
+        `Metadata extracted with confidence: ${metadata.confidence}`
+      );
 
-      const transactions = await this.extractTransactions(workbook, context, structure, metadata);
+      const transactions = await this.extractTransactions(
+        workbook,
+        context,
+        structure,
+        metadata
+      );
       processingNotes.push(`Extracted ${transactions.length} transactions`);
 
       const validatedResult = await this.validateAndCleanData(
-        transactions, 
-        metadata, 
-        structure, 
+        transactions,
+        metadata,
+        structure,
         context
       );
 
       const processingTime = Date.now() - startTime;
 
-      logger.info('Excel extraction completed', {
+      logger.info("Excel extraction completed", {
         requestId: context.requestId,
         transactionsCount: validatedResult.transactions.length,
         processingTime,
         confidence: metadata.confidence,
-        provider: this.fileService.getProvider()
+        provider: this.fileService.getProvider(),
       });
 
       return {
         ...validatedResult,
         processingTime,
-        processingNotes: [...processingNotes, ...validatedResult.processingNotes]
+        processingNotes: [
+          ...processingNotes,
+          ...validatedResult.processingNotes,
+        ],
       };
-
     } catch (error) {
-      logger.error('Excel extraction failed', {
+      logger.error("Excel extraction failed", {
         requestId: context.requestId,
-        error: error instanceof Error ? error.message : 'Unknown error',
-        provider: this.fileService.getProvider()
+        error: error instanceof Error ? error.message : "Unknown error",
+        provider: this.fileService.getProvider(),
       });
       throw error;
     }
@@ -92,131 +105,180 @@ export class ExcelExtractionAgent {
 
   private async downloadAndParseFile(fileUrl: string): Promise<ExcelWorkbook> {
     const fileBuffer = await this.fileService.downloadFile(fileUrl);
-    return XLSX.read(fileBuffer, { type: 'buffer' }) as ExcelWorkbook;
+    return XLSX.read(fileBuffer, { type: "buffer" }) as ExcelWorkbook;
   }
 
-  private async analyzeStructure(workbook: ExcelWorkbook, context: ProcessingContext): Promise<StructureAnalysis> {
+  private async analyzeStructure(
+    workbook: ExcelWorkbook,
+    context: ProcessingContext
+  ): Promise<StructureAnalysis> {
     const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
     const textData = this.convertSheetToText(firstSheet, context.filename);
 
     const prompt = this.buildStructureAnalysisPrompt(textData);
     const systemPrompt = this.getStructureAnalysisSystemPrompt();
 
-    const aiResult = await this.aiProvider.extractStructuredData<AIStructureAnalysis>(
-      prompt,
-      StructureAnalysisSchema,
-      systemPrompt
-    );
+    const aiResult =
+      await this.aiProvider.extractStructuredData<AIStructureAnalysis>(
+        prompt,
+        StructureAnalysisSchema,
+        systemPrompt
+      );
 
+    logger.info("AI Structure Analysis Result:", { aiResult });
     return this.convertAIStructureToStructure(aiResult);
   }
 
-  private async extractMetadata(workbook: ExcelWorkbook, context: ProcessingContext, structure: StructureAnalysis): Promise<ExtractedMetadata> {
+  private async extractMetadata(
+    workbook: ExcelWorkbook,
+    context: ProcessingContext,
+    structure: StructureAnalysis
+  ): Promise<ExtractedMetadata> {
     const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
     const textData = this.convertSheetToText(firstSheet, context.filename);
 
     const prompt = this.buildMetadataExtractionPrompt(textData);
     const systemPrompt = this.getMetadataExtractionSystemPrompt();
 
-    const aiResult = await this.aiProvider.extractStructuredData<AIMetadataExtraction>(
-      prompt,
-      ExtractedMetadataSchema,
-      systemPrompt
-    );
+    const aiResult =
+      await this.aiProvider.extractStructuredData<AIMetadataExtraction>(
+        prompt,
+        ExtractedMetadataSchema,
+        systemPrompt
+      );
 
     return this.convertAIMetadataToMetadata(aiResult);
   }
 
-  private async extractTransactions(workbook: ExcelWorkbook, context: ProcessingContext, structure: StructureAnalysis, metadata: ExtractedMetadata): Promise<ExtractedTransaction[]> {
+  private async extractTransactions(
+    workbook: ExcelWorkbook,
+    context: ProcessingContext,
+    structure: StructureAnalysis,
+    metadata: ExtractedMetadata
+  ): Promise<ExtractedTransaction[]> {
     const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, raw: true }) as ExcelRowData[];
-    
+    const rows = XLSX.utils.sheet_to_json(firstSheet, {
+      header: 1,
+      raw: true,
+    }) as ExcelRowData[];
+
     const dataRows = rows.slice(structure.dataStartRow);
-    const formattedData = this.formatRowsForAI(dataRows, structure.columnMappings);
+    const formattedData = this.formatRowsForAI(
+      dataRows,
+      structure.columnMappings
+    );
 
     const prompt = this.buildTransactionExtractionPrompt(formattedData);
     const systemPrompt = this.getTransactionExtractionSystemPrompt();
 
-    const aiResult = await this.aiProvider.extractStructuredData<AITransactionExtraction[]>(
-      prompt,
-      ExtractedTransactionSchema.array(),
-      systemPrompt
-    );
+    const aiResult = await this.aiProvider.extractStructuredData<
+      AITransactionExtraction[]
+    >(prompt, ExtractedTransactionSchema.array(), systemPrompt);
 
     return this.convertAITransactionsToTransactions(aiResult);
   }
 
-  private async validateAndCleanData(transactions: ExtractedTransaction[], metadata: ExtractedMetadata, structure: StructureAnalysis, context: ProcessingContext): Promise<Omit<ExtractionResult, 'processingTime'>> {
+  private async validateAndCleanData(
+    transactions: ExtractedTransaction[],
+    metadata: ExtractedMetadata,
+    structure: StructureAnalysis,
+    context: ProcessingContext
+  ): Promise<Omit<ExtractionResult, "processingTime">> {
     const processingNotes: string[] = [];
 
     const validTransactions = this.filterValidTransactions(transactions);
-    processingNotes.push(`Validated ${validTransactions.length} transactions (removed ${transactions.length - validTransactions.length} invalid)`);
+    processingNotes.push(
+      `Validated ${validTransactions.length} transactions (removed ${
+        transactions.length - validTransactions.length
+      } invalid)`
+    );
 
-    const cleanedTransactions = this.cleanTransactionDescriptions(validTransactions);
+    const cleanedTransactions =
+      this.cleanTransactionDescriptions(validTransactions);
 
     if (metadata.confidence < context.options.confidenceThreshold) {
-      processingNotes.push(`Warning: Low confidence score (${metadata.confidence}) below threshold (${context.options.confidenceThreshold})`);
+      processingNotes.push(
+        `Warning: Low confidence score (${metadata.confidence}) below threshold (${context.options.confidenceThreshold})`
+      );
     }
 
     return {
       transactions: cleanedTransactions,
       metadata,
       structure,
-      processingNotes
+      processingNotes,
     };
   }
 
   private convertSheetToText(sheet: ExcelSheet, filename: string): string {
     const range = this.getSheetRange(sheet);
     let text = `File: ${filename}\n\n`;
-    
+
     for (let row = range.s.r; row <= Math.min(range.e.r, 25); row++) {
       const rowData = this.extractRowData(sheet, row, range);
-      text += `Row ${row + 1}: ${rowData.join(' | ')}\n`;
+      text += `Row ${row + 1}: ${rowData.join(" | ")}\n`;
     }
-    
+
     return text;
   }
 
   private getSheetRange(sheet: ExcelSheet): ExcelRange {
-    if (!sheet['!ref']) {
+    if (!sheet["!ref"]) {
       return { s: { r: 0, c: 0 }, e: { r: 0, c: 0 } };
     }
-    return XLSX.utils.decode_range(sheet['!ref']);
+    return XLSX.utils.decode_range(sheet["!ref"]);
   }
 
-  private extractRowData(sheet: ExcelSheet, row: number, range: ExcelRange): string[] {
+  private extractRowData(
+    sheet: ExcelSheet,
+    row: number,
+    range: ExcelRange
+  ): string[] {
     const rowData: string[] = [];
     for (let col = range.s.c; col <= Math.min(range.e.c, 10); col++) {
       const cellRef = XLSX.utils.encode_cell({ r: row, c: col });
       const cell = sheet[cellRef];
-      rowData.push(cell ? String(cell.v || '') : '');
+      rowData.push(cell ? String(cell.v || "") : "");
     }
     return rowData;
   }
 
-  private formatRowsForAI(rows: ExcelRowData[], columnMappings: ColumnMappings): string {
-    return rows.slice(0, 100).map((row, index) => {
-      const date = this.getCellValue(row, columnMappings.date);
-      const description = this.getCellValue(row, columnMappings.description);
-      const amount = this.getCellValue(row, columnMappings.amount);
-      return `Row ${index + 1}: Date="${date}" | Description="${description}" | Amount="${amount}"`;
-    }).join('\n');
+  private formatRowsForAI(
+    rows: ExcelRowData[],
+    columnMappings: ColumnMappings
+  ): string {
+    return rows
+      .slice(0, 100)
+      .map((row, index) => {
+        const date = this.getCellValue(row, columnMappings.date);
+        const description = this.getCellValue(row, columnMappings.description);
+        const amount = this.getCellValue(row, columnMappings.amount);
+        return `Row ${
+          index + 1
+        }: Date="${date}" | Description="${description}" | Amount="${amount}"`;
+      })
+      .join("\n");
   }
 
   private getCellValue(row: ExcelRowData, columnIndex: number): string {
     const value = row[columnIndex];
-    return value !== null && value !== undefined ? String(value) : '';
+    return value !== null && value !== undefined ? String(value) : "";
   }
 
-  private filterValidTransactions(transactions: ExtractedTransaction[]): ExtractedTransaction[] {
-    return transactions.filter(transaction => this.isValidTransaction(transaction));
+  private filterValidTransactions(
+    transactions: ExtractedTransaction[]
+  ): ExtractedTransaction[] {
+    return transactions.filter((transaction) =>
+      this.isValidTransaction(transaction)
+    );
   }
 
-  private cleanTransactionDescriptions(transactions: ExtractedTransaction[]): ExtractedTransaction[] {
-    return transactions.map(transaction => ({
+  private cleanTransactionDescriptions(
+    transactions: ExtractedTransaction[]
+  ): ExtractedTransaction[] {
+    return transactions.map((transaction) => ({
       ...transaction,
-      description: this.cleanDescription(transaction.description)
+      description: this.cleanDescription(transaction.description),
     }));
   }
 
@@ -229,7 +291,7 @@ export class ExcelExtractionAgent {
         transaction.value &&
         transaction.value > 0 &&
         transaction.type &&
-        ['EXPENSE', 'INCOME'].includes(transaction.type)
+        ["EXPENSE", "INCOME"].includes(transaction.type)
       );
     } catch {
       return false;
@@ -237,43 +299,62 @@ export class ExcelExtractionAgent {
   }
 
   private cleanDescription(description: string): string {
-    if (!description) return '';
-    
+    if (!description) return "";
+
     return description
       .trim()
-      .replace(/\s+/g, ' ')
-      .replace(/[^\w\s\u0590-\u05FF]/g, '')
+      .replace(/\s+/g, " ")
+      .replace(/[^\w\s\u0590-\u05FF]/g, "")
       .substring(0, 200);
   }
 
-  private convertAIStructureToStructure(aiResult: AIStructureAnalysis): StructureAnalysis {
-    return {
+  private convertAIStructureToStructure(
+    aiResult: AIStructureAnalysis
+  ): StructureAnalysis {
+    logger.info("Converting AI Structure Analysis:", {
+      input: aiResult,
       headerRow: aiResult.headerRow,
       dataStartRow: aiResult.dataStartRow,
       columnMappings: aiResult.columnMappings,
       fileType: aiResult.fileType,
       confidence: aiResult.confidence,
-      summary: aiResult.summary
+      summary: aiResult.summary,
+    });
+
+    const result = {
+      headerRow: aiResult.headerRow,
+      dataStartRow: aiResult.dataStartRow,
+      columnMappings: aiResult.columnMappings,
+      fileType: aiResult.fileType,
+      confidence: aiResult.confidence,
+      summary: aiResult.summary,
     };
+
+    logger.info("Converted Structure Analysis Result:", { result });
+    return result;
   }
 
-  private convertAIMetadataToMetadata(aiResult: AIMetadataExtraction): ExtractedMetadata {
+  private convertAIMetadataToMetadata(
+    aiResult: AIMetadataExtraction
+  ): ExtractedMetadata {
     return {
       paymentMethod: aiResult.paymentMethod,
       creditCardLastFour: aiResult.creditCardLastFour,
       bankSourceType: aiResult.bankSourceType,
       paymentMonth: aiResult.paymentMonth,
-      confidence: aiResult.confidence
+      confidence: aiResult.confidence,
     };
   }
 
-  private convertAITransactionsToTransactions(aiResult: AITransactionExtraction[]): ExtractedTransaction[] {
-    return aiResult.map(transaction => ({
+  private convertAITransactionsToTransactions(
+    aiResult: AITransactionExtraction[]
+  ): ExtractedTransaction[] {
+    return aiResult.map((transaction) => ({
       date: transaction.date,
       description: transaction.description,
       value: transaction.value,
       type: transaction.type,
-      rawData: {}
+      rawData: {},
     }));
   }
 
@@ -293,7 +374,7 @@ ${textData}
   }
 
   private getStructureAnalysisSystemPrompt(): string {
-    return 'You are an expert Excel analyst specializing in financial documents. Always respond with valid JSON only. Be precise with column indices and row numbers.';
+    return "You are an expert Excel analyst specializing in financial documents. Always respond with valid JSON only. Be precise with column indices and row numbers.";
   }
 
   private buildMetadataExtractionPrompt(textData: string): string {
@@ -312,7 +393,7 @@ ${textData}
   }
 
   private getMetadataExtractionSystemPrompt(): string {
-    return 'You are an expert at extracting financial metadata from Excel files. Always respond with valid JSON only. Be conservative with confidence scores.';
+    return "You are an expert at extracting financial metadata from Excel files. Always respond with valid JSON only. Be conservative with confidence scores.";
   }
 
   private buildTransactionExtractionPrompt(formattedData: string): string {
@@ -329,6 +410,6 @@ ${formattedData}
   }
 
   private getTransactionExtractionSystemPrompt(): string {
-    return 'You are an expert at extracting financial transactions from Excel data. Always respond with valid JSON array only. Clean descriptions and normalize data.';
+    return "You are an expert at extracting financial transactions from Excel data. Always respond with valid JSON array only. Clean descriptions and normalize data.";
   }
 }

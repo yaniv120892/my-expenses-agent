@@ -77,7 +77,7 @@ export class ExtractionController {
 
   private createAIProvider(): AIProvider {
     return new AIProvider({
-      model: process.env.AI_MODEL || "gemini-2.0-flash",
+      model: "	gemini-2.5-pro",
       maxTokens: parseInt(process.env.AI_MAX_TOKENS || "2000"),
       temperature: parseFloat(process.env.AI_TEMPERATURE || "0.1"),
       timeout: parseInt(process.env.AI_TIMEOUT || "60000"),
