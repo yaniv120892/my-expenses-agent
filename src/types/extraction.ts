@@ -31,13 +31,6 @@ export interface AIProviderConfig {
   apiKey: string;
 }
 
-export interface S3Config {
-  region: string;
-  accessKeyId: string;
-  secretAccessKey: string;
-  bucketName: string;
-}
-
 export interface ProcessingContext {
   requestId: string;
   userId?: string;
@@ -52,9 +45,13 @@ export interface ServiceConfig {
   nodeEnv: 'development' | 'production' | 'test';
   logLevel: 'error' | 'warn' | 'info' | 'debug';
   ai: AIProviderConfig;
-  s3: S3Config;
-  rateLimit: {
-    windowMs: number;
-    maxRequests: number;
+  fileService: {
+    provider: 's3' | 'gcs' | 'azure' | 'local';
+    region?: string;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    bucketName?: string;
+    baseUrl?: string;
+    apiKey?: string;
   };
 }

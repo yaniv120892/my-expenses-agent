@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx';
 import { AIProvider } from './aiProvider';
-import { S3Service } from './s3Service';
+import { FileService } from '../types/fileService';
 import { 
   ExtractionResult, 
   ExtractedTransaction, 
@@ -27,11 +27,11 @@ import {
 
 export class ExcelExtractionAgent {
   private aiProvider: AIProvider;
-  private s3Service: S3Service;
+  private fileService: FileService;
 
-  constructor(aiProvider: AIProvider, s3Service: S3Service) {
+  constructor(aiProvider: AIProvider, fileService: FileService) {
     this.aiProvider = aiProvider;
-    this.s3Service = s3Service;
+    this.fileService = fileService;
   }
 
   async extractData(context: ProcessingContext): Promise<ExtractionResult> {
@@ -41,11 +41,12 @@ export class ExcelExtractionAgent {
     try {
       logger.info('Starting Excel extraction', { 
         requestId: context.requestId, 
-        filename: context.filename 
+        filename: context.filename,
+        provider: this.fileService.getProvider()
       });
 
       const workbook = await this.downloadAndParseFile(context.fileUrl);
-      processingNotes.push('File downloaded and parsed successfully');
+      processingNotes.push(`File downloaded and parsed successfully from ${this.fileService.getProvider()}`);
 
       const structure = await this.analyzeStructure(workbook, context);
       processingNotes.push(`Structure analysis completed: ${structure.summary}`);
@@ -69,7 +70,8 @@ export class ExcelExtractionAgent {
         requestId: context.requestId,
         transactionsCount: validatedResult.transactions.length,
         processingTime,
-        confidence: metadata.confidence
+        confidence: metadata.confidence,
+        provider: this.fileService.getProvider()
       });
 
       return {
@@ -81,14 +83,15 @@ export class ExcelExtractionAgent {
     } catch (error) {
       logger.error('Excel extraction failed', {
         requestId: context.requestId,
-        error: error instanceof Error ? error.message : 'Unknown error'
+        error: error instanceof Error ? error.message : 'Unknown error',
+        provider: this.fileService.getProvider()
       });
       throw error;
     }
   }
 
   private async downloadAndParseFile(fileUrl: string): Promise<ExcelWorkbook> {
-    const fileBuffer = await this.s3Service.downloadFile(fileUrl);
+    const fileBuffer = await this.fileService.downloadFile(fileUrl);
     return XLSX.read(fileBuffer, { type: 'buffer' }) as ExcelWorkbook;
   }
 
