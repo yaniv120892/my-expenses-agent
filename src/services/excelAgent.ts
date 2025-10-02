@@ -334,28 +334,57 @@ export class ExcelExtractionAgent {
     return result;
   }
 
-  private convertAIMetadataToMetadata(
-    aiResult: AIMetadataExtraction
-  ): ExtractedMetadata {
+  private convertAIMetadataToMetadata(aiResult: any): ExtractedMetadata {
+    logger.info("Converting AI metadata to metadata:", { aiResult });
+
+    // Handle both camelCase and snake_case field names from AI
     return {
-      paymentMethod: aiResult.paymentMethod,
-      creditCardLastFour: aiResult.creditCardLastFour,
-      bankSourceType: aiResult.bankSourceType,
-      paymentMonth: aiResult.paymentMonth,
-      confidence: aiResult.confidence,
+      paymentMethod: aiResult.paymentMethod || aiResult.payment_method,
+      creditCardLastFour:
+        aiResult.creditCardLastFour || aiResult.credit_card_last_4_digits,
+      bankSourceType: aiResult.bankSourceType || aiResult.bank_source_type,
+      paymentMonth: aiResult.paymentMonth || aiResult.payment_month,
+      confidence: aiResult.confidence || aiResult.confidence_level,
     };
   }
 
   private convertAITransactionsToTransactions(
     aiResult: AITransactionExtraction[]
   ): ExtractedTransaction[] {
-    return aiResult.map((transaction) => ({
-      date: transaction.date,
-      description: transaction.description,
-      value: transaction.value,
-      type: transaction.type,
-      rawData: {},
-    }));
+    // Safety check: ensure aiResult is an array
+    if (!Array.isArray(aiResult)) {
+      logger.error("AI returned non-array result for transactions:", {
+        aiResult,
+      });
+      throw new Error(
+        "AI returned invalid format for transactions - expected array"
+      );
+    }
+
+    logger.info("Converting AI transactions to transactions:", {
+      aiResult,
+      arrayLength: aiResult.length,
+      firstElement: aiResult[0],
+    });
+
+    return aiResult.map((transaction, index) => {
+      logger.info(`Processing transaction ${index}:`, { transaction });
+
+      if (!transaction) {
+        logger.error(`Transaction at index ${index} is undefined:`, {
+          transaction,
+        });
+        throw new Error(`Transaction at index ${index} is undefined`);
+      }
+
+      return {
+        date: transaction.date,
+        description: transaction.description,
+        value: transaction.value,
+        type: transaction.type,
+        rawData: {},
+      };
+    });
   }
 
   private buildStructureAnalysisPrompt(textData: string): string {

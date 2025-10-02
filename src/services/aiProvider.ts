@@ -26,18 +26,44 @@ export class AIProvider {
   ): Promise<string> {
     try {
       const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
+      logger.info("Calling Gemini API", {
+        model: this.config.model,
+        promptLength: fullPrompt.length,
+        hasSystemPrompt: !!systemPrompt,
+      });
 
       const result = await this.model.generateContent(fullPrompt);
       const response = await result.response;
+
+      logger.info("Gemini API raw response details", {
+        response: response,
+        candidates: result.response.candidates,
+        finishReason: result.response.candidates?.[0]?.finishReason,
+        safetyRatings: result.response.candidates?.[0]?.safetyRatings,
+      });
+
       const text = response.text();
 
       if (!text) {
+        logger.error("No text content in Gemini response", {
+          response: response,
+          candidates: result.response.candidates,
+          finishReason: result.response.candidates?.[0]?.finishReason,
+          safetyRatings: result.response.candidates?.[0]?.safetyRatings,
+        });
         throw new Error("No content received from Gemini");
       }
 
+      logger.info("Gemini API response received", {
+        responseLength: text.length,
+      });
       return text.trim();
     } catch (error) {
-      logger.error("Gemini API error:", error);
+      logger.error("Gemini API error:", {
+        error: error instanceof Error ? error.message : "Unknown error",
+        model: this.config.model,
+        apiKey: this.config.apiKey ? "***" : "missing",
+      });
       throw new Error(
         `AI processing failed: ${
           error instanceof Error ? error.message : "Unknown error"
@@ -62,7 +88,6 @@ export class AIProvider {
 
   private getGenerationConfig(): GenerationConfig {
     return {
-      maxOutputTokens: this.config.maxTokens,
       temperature: this.config.temperature,
       topP: 0.8,
       topK: 40,
@@ -75,8 +100,63 @@ export class AIProvider {
   }
 
   private getSchemaDescription(schema: unknown): string {
-    // For now, provide a simple description of the expected structure
-    // This should be improved to dynamically generate from Zod schemas
+    // Check the actual schema type by looking at the _def.typeName
+    if (schema && typeof schema === "object" && "_def" in schema) {
+      const zodSchema = schema as any;
+      const typeName = zodSchema._def?.typeName;
+
+      logger.info("Schema detection debug:", {
+        typeName,
+        schemaType: typeof schema,
+      });
+
+      // Check if this is a Zod array schema (for transactions)
+      if (typeName === "ZodArray") {
+        logger.info("Detected transaction array schema");
+        return JSON.stringify(
+          [
+            {
+              date: "string (DD/MM/YYYY format)",
+              description: "string (clean business name)",
+              value: "number (positive number, expenses are positive)",
+              type: "string (EXPENSE or INCOME)",
+            },
+          ],
+          null,
+          2
+        );
+      }
+
+      // Check if this is a metadata schema (ZodObject with paymentMethod)
+      if (typeName === "ZodObject") {
+        const shape = zodSchema._def?.shape;
+        logger.info("ZodObject shape debug:", {
+          shapeKeys: shape ? Object.keys(shape) : [],
+          hasPaymentMethod: shape && shape.paymentMethod,
+          shape: shape,
+          _def: zodSchema._def,
+        });
+
+        if (shape && shape.paymentMethod) {
+          logger.info("Detected metadata schema");
+          return JSON.stringify(
+            {
+              paymentMethod:
+                "string (American Express, Visa, Mastercard, etc.)",
+              creditCardLastFour: "string (last 4 digits, optional)",
+              bankSourceType: "string (BANK_CREDIT or NON_BANK_CREDIT)",
+              paymentMonth: "string (MM/YYYY format)",
+              confidence: "number (0-1, confidence level)",
+            },
+            null,
+            2
+          );
+        }
+      }
+    }
+
+    // Default to structure analysis schema
+    logger.info("Using default structure analysis schema");
     return JSON.stringify(
       {
         headerRow: "number (0-based index of header row)",
