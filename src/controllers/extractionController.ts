@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { ExcelExtractionAgent } from '../services/excelAgent';
 import { AIProvider } from '../services/aiProvider';
-import { S3Service } from '../services/s3Service';
+import { FileServiceFactory } from '../services/fileServiceFactory';
 import { 
   ExtractDataRequestSchema, 
   ExtractionResponseSchema,
@@ -61,8 +61,8 @@ export class ExtractionController {
 
   private createExcelAgent(): ExcelExtractionAgent {
     const aiProvider = this.createAIProvider();
-    const s3Service = this.createS3Service();
-    return new ExcelExtractionAgent(aiProvider, s3Service);
+    const fileService = this.createFileService();
+    return new ExcelExtractionAgent(aiProvider, fileService);
   }
 
   private createAIProvider(): AIProvider {
@@ -75,12 +75,17 @@ export class ExtractionController {
     });
   }
 
-  private createS3Service(): S3Service {
-    return new S3Service({
-      region: process.env.S3_REGION || '',
-      accessKeyId: process.env.S3_ACCESS_KEY_ID || '',
-      secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || '',
-      bucketName: process.env.S3_BUCKET_NAME || ''
+  private createFileService() {
+    const provider = (process.env.FILE_SERVICE_PROVIDER || 's3') as 's3' | 'gcs' | 'azure' | 'local';
+    
+    return FileServiceFactory.createFileService({
+      provider,
+      region: process.env.FILE_SERVICE_REGION,
+      accessKeyId: process.env.FILE_SERVICE_ACCESS_KEY_ID,
+      secretAccessKey: process.env.FILE_SERVICE_SECRET_ACCESS_KEY,
+      bucketName: process.env.FILE_SERVICE_BUCKET_NAME,
+      baseUrl: process.env.FILE_SERVICE_BASE_URL,
+      apiKey: process.env.FILE_SERVICE_API_KEY
     });
   }
 
