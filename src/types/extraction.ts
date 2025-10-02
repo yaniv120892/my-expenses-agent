@@ -25,7 +25,6 @@ export interface ExtractionOptions {
 
 export interface AIProviderConfig {
   model: string;
-  maxTokens: number;
   temperature: number;
   timeout: number;
   apiKey: string;

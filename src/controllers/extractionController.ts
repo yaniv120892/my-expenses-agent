@@ -53,10 +53,19 @@ export class ExtractionController {
         requestId,
         filename,
         userId,
+        fileUrl: context.fileUrl,
+        options: context.options,
       });
 
+      logger.info("Calling ExcelAgent.extractData");
       const result = await this.excelAgent.extractData(context);
+      logger.info("ExcelAgent.extractData completed", {
+        transactionCount: result.transactions.length,
+        processingTime: result.processingTime,
+      });
+
       const response = this.createSuccessResponse(result, requestId);
+      logger.info("Sending successful response", { requestId });
 
       res.status(200).json(response);
     } catch (error) {
@@ -77,8 +86,7 @@ export class ExtractionController {
 
   private createAIProvider(): AIProvider {
     return new AIProvider({
-      model: "	gemini-2.5-pro",
-      maxTokens: parseInt(process.env.AI_MAX_TOKENS || "2000"),
+      model: "gemini-2.5-flash",
       temperature: parseFloat(process.env.AI_TEMPERATURE || "0.1"),
       timeout: parseInt(process.env.AI_TIMEOUT || "60000"),
       apiKey: process.env.GEMINI_API_KEY || "",
