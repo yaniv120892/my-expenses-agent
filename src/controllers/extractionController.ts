@@ -77,16 +77,7 @@ export class ExtractionController {
 
   private createFileService() {
     const provider = (process.env.FILE_SERVICE_PROVIDER || 's3') as 's3' | 'gcs' | 'azure' | 'local';
-    
-    return FileServiceFactory.createFileService({
-      provider,
-      region: process.env.FILE_SERVICE_REGION,
-      accessKeyId: process.env.FILE_SERVICE_ACCESS_KEY_ID,
-      secretAccessKey: process.env.FILE_SERVICE_SECRET_ACCESS_KEY,
-      bucketName: process.env.FILE_SERVICE_BUCKET_NAME,
-      baseUrl: process.env.FILE_SERVICE_BASE_URL,
-      apiKey: process.env.FILE_SERVICE_API_KEY
-    });
+    return FileServiceFactory.createFileService(provider);
   }
 
   private validateRequest(body: unknown): { success: boolean; data?: unknown; error?: unknown } {

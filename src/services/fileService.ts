@@ -1,40 +1,49 @@
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
-import { FileService, FileServiceConfig } from '../types/fileService';
-import { logger } from '../utils/logger';
+import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
+import { FileService, FileServiceProvider } from "../types/fileService";
+import { logger } from "../utils/logger";
 
-export class FileServiceProvider implements FileService {
-  private client: S3Client;
-  private config: FileServiceConfig;
-  private provider: string;
+export class FileServiceProviderImpl implements FileService {
+  private client?: S3Client;
+  private provider: FileServiceProvider;
+  private config: {
+    region: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    bucketName: string;
+  };
 
-  constructor(config: FileServiceConfig) {
-    this.config = config;
-    this.provider = config.provider;
-    
-    if (config.provider === 's3') {
+  constructor(provider: FileServiceProvider) {
+    this.provider = provider;
+    this.config = this.loadConfigFromEnv();
+
+    if (provider === "s3") {
       this.client = this.createS3Client();
     } else {
-      throw new Error(`Unsupported file service provider: ${config.provider}`);
+      throw new Error(`Unsupported file service provider: ${provider}`);
     }
   }
 
   async downloadFile(fileUrl: string): Promise<Buffer> {
     try {
       switch (this.provider) {
-        case 's3':
+        case "s3":
           return await this.downloadFromS3(fileUrl);
-        case 'gcs':
+        case "gcs":
           return await this.downloadFromGCS(fileUrl);
-        case 'azure':
+        case "azure":
           return await this.downloadFromAzure(fileUrl);
-        case 'local':
+        case "local":
           return await this.downloadFromLocal(fileUrl);
         default:
           throw new Error(`Unsupported provider: ${this.provider}`);
       }
     } catch (error) {
-      logger.error('File download error:', error);
-      throw new Error(`Failed to download file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error("File download error:", error);
+      throw new Error(
+        `Failed to download file: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
     }
   }
 
@@ -42,46 +51,71 @@ export class FileServiceProvider implements FileService {
     return this.provider;
   }
 
-  private createS3Client(): S3Client {
-    if (!this.config.region || !this.config.accessKeyId || !this.config.secretAccessKey) {
-      throw new Error('S3 configuration is incomplete');
+  private loadConfigFromEnv(): {
+    region: string;
+    accessKeyId: string;
+    secretAccessKey: string;
+    bucketName: string;
+  } {
+    const region = process.env.FILE_SERVICE_REGION;
+    const accessKeyId = process.env.FILE_SERVICE_ACCESS_KEY_ID;
+    const secretAccessKey = process.env.FILE_SERVICE_SECRET_ACCESS_KEY;
+    const bucketName = process.env.FILE_SERVICE_BUCKET_NAME;
+
+    if (!region || !accessKeyId || !secretAccessKey || !bucketName) {
+      throw new Error(
+        "Missing required file service environment variables: FILE_SERVICE_REGION, FILE_SERVICE_ACCESS_KEY_ID, FILE_SERVICE_SECRET_ACCESS_KEY, FILE_SERVICE_BUCKET_NAME"
+      );
     }
 
+    return {
+      region,
+      accessKeyId,
+      secretAccessKey,
+      bucketName,
+    };
+  }
+
+  private createS3Client(): S3Client {
     return new S3Client({
       region: this.config.region,
       credentials: {
         accessKeyId: this.config.accessKeyId,
-        secretAccessKey: this.config.secretAccessKey
-      }
+        secretAccessKey: this.config.secretAccessKey,
+      },
     });
   }
 
   private async downloadFromS3(fileUrl: string): Promise<Buffer> {
+    if (!this.client) {
+      throw new Error("S3 client not initialized");
+    }
+
     const key = this.extractKeyFromUrl(fileUrl);
     const command = new GetObjectCommand({
       Bucket: this.config.bucketName,
-      Key: key
+      Key: key,
     });
 
     const response = await this.client.send(command);
-    
+
     if (!response.Body) {
-      throw new Error('No file content received from S3');
+      throw new Error("No file content received from S3");
     }
 
     return await this.streamToBuffer(response.Body);
   }
 
   private async downloadFromGCS(fileUrl: string): Promise<Buffer> {
-    throw new Error('GCS provider not implemented yet');
+    throw new Error("GCS provider not implemented yet");
   }
 
   private async downloadFromAzure(fileUrl: string): Promise<Buffer> {
-    throw new Error('Azure provider not implemented yet');
+    throw new Error("Azure provider not implemented yet");
   }
 
   private async downloadFromLocal(fileUrl: string): Promise<Buffer> {
-    throw new Error('Local provider not implemented yet');
+    throw new Error("Local provider not implemented yet");
   }
 
   private extractKeyFromUrl(fileUrl: string): string {
@@ -95,8 +129,10 @@ export class FileServiceProvider implements FileService {
 
   private async streamToBuffer(body: unknown): Promise<Buffer> {
     const chunks: Uint8Array[] = [];
-    const stream = body as { [Symbol.asyncIterator]: () => AsyncIterator<Uint8Array> };
-    
+    const stream = body as {
+      [Symbol.asyncIterator]: () => AsyncIterator<Uint8Array>;
+    };
+
     for await (const chunk of stream) {
       chunks.push(chunk);
     }
