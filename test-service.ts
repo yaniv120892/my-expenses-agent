@@ -1,6 +1,157 @@
 import axios from "axios";
+import * as fs from "fs";
+import * as path from "path";
 
 const SERVICE_URL = "http://localhost:3003";
+
+async function writeTransactionsToFiles(
+  extractionData: any,
+  originalFileUrl?: string
+) {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const outputDir = path.join(__dirname, "extracted-transactions");
+
+  // Create output directory if it doesn't exist
+  if (!fs.existsSync(outputDir)) {
+    fs.mkdirSync(outputDir, { recursive: true });
+  }
+
+  const transactions = extractionData.transactions;
+  const metadata = extractionData.metadata;
+  const structure = extractionData.structure;
+
+  console.log(`\n📝 Writing ${transactions.length} transactions to files...`);
+
+  // Download and save original Excel file if URL is provided
+  if (originalFileUrl) {
+    try {
+      console.log("📥 Downloading original Excel file...");
+      const fileResponse = await axios.get(originalFileUrl, {
+        responseType: "arraybuffer",
+        timeout: 30000, // 30 second timeout
+      });
+
+      // Extract filename from URL or use a default name
+      const urlPath = new URL(originalFileUrl).pathname;
+      const originalFilename = path.basename(urlPath) || "original-file.xlsx";
+      const excelFilePath = path.join(
+        outputDir,
+        `original-${originalFilename}`
+      );
+
+      fs.writeFileSync(excelFilePath, fileResponse.data);
+      console.log(`✅ Original Excel file saved: ${excelFilePath}`);
+    } catch (error) {
+      console.log(
+        `⚠️  Failed to download original Excel file: ${
+          error instanceof Error ? error.message : "Unknown error"
+        }`
+      );
+      console.log(
+        `   This is likely due to expired authentication tokens in the S3 URL.`
+      );
+
+      // Save the original URL for reference
+      const urlFilePath = path.join(
+        outputDir,
+        `original-file-url-${timestamp}.txt`
+      );
+      fs.writeFileSync(
+        urlFilePath,
+        `Original Excel File URL:\n${originalFileUrl}\n\nNote: This URL may have expired authentication tokens.`
+      );
+      console.log(`✅ Original file URL saved for reference: ${urlFilePath}`);
+    }
+  }
+
+  // Write JSON file with all data
+  const jsonData = {
+    metadata,
+    structure,
+    transactions,
+    extractedAt: new Date().toISOString(),
+    totalTransactions: transactions.length,
+    originalFileUrl: originalFileUrl || null,
+  };
+
+  const jsonFilePath = path.join(outputDir, `transactions-${timestamp}.json`);
+  fs.writeFileSync(jsonFilePath, JSON.stringify(jsonData, null, 2));
+  console.log(`✅ JSON file written: ${jsonFilePath}`);
+
+  // Write CSV file with just transactions
+  const csvHeaders = ["Date", "Description", "Value", "Type"];
+  const csvRows = transactions.map((tx: any) => [
+    tx.date,
+    tx.description,
+    tx.value,
+    tx.type,
+  ]);
+
+  const csvContent = [csvHeaders, ...csvRows]
+    .map((row) => row.map((field: any) => `"${field}"`).join(","))
+    .join("\n");
+
+  const csvFilePath = path.join(outputDir, `transactions-${timestamp}.csv`);
+  fs.writeFileSync(csvFilePath, csvContent);
+  console.log(`✅ CSV file written: ${csvFilePath}`);
+
+  // Write summary file
+  const summaryContent = `
+EXTRACTION SUMMARY
+==================
+Extracted At: ${new Date().toISOString()}
+Total Transactions: ${transactions.length}
+Processing Time: ${extractionData.processingTime}ms
+${originalFileUrl ? `Original File URL: ${originalFileUrl}` : ""}
+
+METADATA:
+${metadata ? JSON.stringify(metadata, null, 2) : "No metadata available"}
+
+STRUCTURE ANALYSIS:
+${
+  structure
+    ? JSON.stringify(structure, null, 2)
+    : "No structure analysis available"
+}
+
+PROCESSING NOTES:
+${
+  extractionData.processingNotes
+    ? extractionData.processingNotes.join("\n")
+    : "No processing notes"
+}
+
+TRANSACTIONS BREAKDOWN:
+- Expenses: ${transactions.filter((tx: any) => tx.type === "EXPENSE").length}
+- Income: ${transactions.filter((tx: any) => tx.type === "INCOME").length}
+- Total Value: ${transactions
+    .reduce((sum: number, tx: any) => sum + tx.value, 0)
+    .toFixed(2)}
+`;
+
+  const summaryFilePath = path.join(outputDir, `summary-${timestamp}.txt`);
+  fs.writeFileSync(summaryFilePath, summaryContent);
+  console.log(`✅ Summary file written: ${summaryFilePath}`);
+
+  console.log(`\n📊 Extraction Summary:`);
+  console.log(`   • Total transactions: ${transactions.length}`);
+  console.log(
+    `   • Expenses: ${
+      transactions.filter((tx: any) => tx.type === "EXPENSE").length
+    }`
+  );
+  console.log(
+    `   • Income: ${
+      transactions.filter((tx: any) => tx.type === "INCOME").length
+    }`
+  );
+  console.log(
+    `   • Total value: ${transactions
+      .reduce((sum: number, tx: any) => sum + tx.value, 0)
+      .toFixed(2)}`
+  );
+  console.log(`   • Files saved to: ${outputDir}`);
+}
 
 async function testService() {
   console.log("Testing Excel extraction service...");
@@ -13,7 +164,7 @@ async function testService() {
     console.log("2. Testing extraction endpoint...");
     const testRequest = {
       fileUrl:
-        "https://my-expenses-private.s3.eu-west-3.amazonaws.com/imports/2d658b14-a669-439c-b7f6-163028793be6-4730_08_2025.xlsx?response-content-disposition=inline&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEJT%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCWV1LXdlc3QtMyJGMEQCIHj9BFr48YIqbYKxekLdM6i%2BTRR2Cclek%2B%2FbsmHxmVhzAiB1eRKAqkwL3kFksb1Q2MU31p8yXOHyaX5XtkyFX%2BHZZiq5AwgtEAMaDDg2ODI0Mjg2NzEyOSIMUzVLb3OjREVCpwPwKpYDr05fbjnCX8uYgXZpB%2B%2FXaEWYDYrwIfIjd7SjIIl6aqW3ZjfFAFtHx2BXRbq2BNbN0P6i9FnNGj2FhMVxu%2Fb01pfKdVRQd2UMqFbXGdXBYYNaeir3lgCXwhj5bdPCppqWLnhlsF2gd%2BF756BSoP3qylSIByWanSvqcaIG0tk5h2aSexq0OSZ3XfUefTE4agqlAuiz%2FGQuKclKdnK6LrxFvMsNB9WeNu9yFrKCmuAs6jcrpbDREofoa9GFmcMOMeRcC1M0IpYWcmt3GkzfRpB8MRSsPU%2FrJ9nxO0dvYuF7nJYdQW3ykEeRA30SzLr02x5uK7WecpA7S6bvmQPP%2B5Ay6DnzI%2BOKa0GBvif4N2sgu3KxVKjjzLF5%2BGslD4kMJcQd3gE3XA9IvNYlTLt0lELFInN8gOatsYImBwxsjQZDsDof5hKUgdm7WjQ3MNpCWh392KQ8wliwJFehIZ7nbjZkcRu1%2Bpjnxc29JU%2FRkFejnNcpxNmJy5WQj2B5uuInt8gGtf53fs1fWm7zkt6D1omm65hLL2wyGDCZgPnGBjrfAlIJMTdiadk0e8rtWWQWvXUsu0RWE1G7oUG9zlndsQBM0C5bXBMOpFucngHncTuE5LoXiUYphj8EzukMk08rl68xVMpgbK08cdeitose1aLFxELDW5MFuzaCeFecv3ptNnzfT7pYBMH8OJg2l4EEFe3GRBwZupAFMhWu1xucPhvvzOCSL5WrRigaTdA81T9%2Bmi6Ii1EVTxODgYeK4hsBffmg3iKlqi2Lunzg9cr%2BiabTR0IJ8Vy0z0ngVJrLxkx83YII78jjTC4iYs176mnWz4ANe%2F5N12wnz0D9ygtkZv8jWIZXo2HKcdgDMj2IuqGMXcBnF8BqejKY%2B7kaUw7CfzrJVDppMneWBE9p%2FpK7C7e0ThoPaXUEV%2Fk8JFg0P91y7CYIBvw0ifyeVdr5LV43TL37fDpzF5HJ5C%2FRLwDyKE0x%2FojJJaeYsqhhv5nFs2mfZmIYgz704Gt5qea86XueHQ%3D%3D&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIA4UJ2OYO4Y7PPGRSD%2F20251002%2Feu-west-3%2Fs3%2Faws4_request&X-Amz-Date=20251002T114150Z&X-Amz-Expires=43200&X-Amz-SignedHeaders=host&X-Amz-Signature=cb121c7a1d994e37cbf2c69b7aeed9460a46fe3ad69b34e2a92aa8e8cd21f1c2",
+        "https://my-expenses-private.s3.eu-west-3.amazonaws.com/imports/2cf4577a-3633-4578-a1ed-dda58bbc9c9a-%D7%A4%D7%99%D7%A8%D7%95%D7%98%20%D7%97%D7%99%D7%95%D7%91%D7%99%D7%9D%20%D7%9C%D7%9B%D7%A8%D7%98%D7%99%D7%A1%20%D7%95%D7%99%D7%96%D7%94%209114%20-%2004.07.25.xlsx?response-content-disposition=inline&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEFUaCWV1LXdlc3QtMyJHMEUCIFUk%2Bg7YxByGdhs5rXBS4wSHiLhAPY2nkPiQXhez7anIAiEAjkeq5kM%2FqkG8dJlJ8eJyP2JzIRKqdxwiYCLSm%2B%2B%2BLbYqwgMI7v%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FARADGgw4NjgyNDI4NjcxMjkiDJDSV59D0jzO1facsSqWA1nRxJ2p2n7mMv%2BceLg8Rb4YOR4gtlt%2BCzvNQ9KIhdJKGJk0Sk44lH6sAVfkPCdvwYghAZKabI1dd1ngFH%2BtZVvQrbyTONli%2BlZ%2F5byhZ1HPylcgjFQBywWyCeqEFNbMjGP557TkIldBvxCLhzgffJZnxtsGBYBh98K38KAj46jOEe9hs2r15o962qfP7JA6qXTiWxtBeetj7G6V86p4Uapno7lebGHfwCvrmQZNmmPKvUeRtZgDmhH4VJiDSx3MZ9jWMyBiMYcXwZGx80uYPZVyZcjh529ewArko9naXCJ6me%2FYnaLWl%2FInRAra%2FmYUOkuiTf8p4lJfIP4UIuALzTyEIdfkInVSVlk3iv6S6whheqBuqFvWMNOfR0JRoNLTLPqzk9Wc73ZASVta2%2F1uG%2B3oMVHiHk7cDAorYxMpWZ4JiE%2BP8aEp1BiVukhQVnEsmdO5qMK4X7mziir77gvXoG2XoHIF66%2B%2Bml1u%2BVL31ywYmVWj1k1Cyb9MyNZvlgac4lfyH%2FUdell6OIxP3xzVIm%2FOo10aH3MwyfqjxwY63gK5Rw7KkbJ%2FknsuWXubivMwaIl2jQfb7q6MDNtsXIZWWvq2Gsr%2FT2aDwQYOJO3oCC0MUjH2gPSU8x%2Ft6OspgTBVogp%2FRSFMZCE39pvhm86vnc8H2rR9XPPv5jQNOBwih6lUK%2FJPNUK0SZ%2B3A2IvlaIFd81liMPvia4wFp95Cqj3cqsIrZjKof%2BQikfnlUqxkwWGPII8bLzlNe6%2B5Z9sra5x%2BqgXxIFK5%2FtH8hQaLzn%2Frryu0M170Gdb%2B9QzX%2BnW7B4E7WabI0oAkH0aN3n%2F0OOAepija9xPABAh6SlP2zS0NVs1MJvI%2FK6g9wXR5M16yXWLe5Du0py86WIDdCKOw3xntGVhqdflYouh4%2Bxab13mKcI7%2Bb2zBnahOLInBjPouHxIyaQT91ceFJxGbb6yoTQwKs54WAulrU0SjI5rqZn6Z%2BL1RnnHCcsU%2FwRMXo7iYDjH0WuETrhhV7j33msH7Q%3D%3D&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=ASIA4UJ2OYO4WAK7PKN4%2F20251010%2Feu-west-3%2Fs3%2Faws4_request&X-Amz-Date=20251010T123517Z&X-Amz-Expires=43200&X-Amz-SignedHeaders=host&X-Amz-Signature=d34f64e4b78f08180a7ee46db787ed29cb35fac9f5632c3eeb00d698e372753a",
       filename: "test-file.xlsx",
       userId: "550e8400-e29b-41d4-a716-446655440000",
       options: {
@@ -28,6 +179,17 @@ async function testService() {
       testRequest
     );
     console.log("✅ Extraction test passed:", extractionResponse.data);
+
+    // Write extracted transactions to files
+    if (
+      extractionResponse.data.success &&
+      extractionResponse.data.data.transactions
+    ) {
+      await writeTransactionsToFiles(
+        extractionResponse.data.data,
+        testRequest.fileUrl
+      );
+    }
   } catch (error: any) {
     if (error.response) {
       console.log(
