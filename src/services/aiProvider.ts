@@ -142,10 +142,11 @@ export class AIProvider {
           return JSON.stringify(
             {
               paymentMethod:
-                "string (American Express, Visa, Mastercard, etc.)",
+                "string (American Express, Visa, Mastercard, etc., optional)",
               creditCardLastFour: "string (last 4 digits, optional)",
-              bankSourceType: "string (BANK_CREDIT or NON_BANK_CREDIT)",
-              paymentMonth: "string (MM/YYYY format)",
+              bankSourceType:
+                "string (BANK_CREDIT, NON_BANK_CREDIT, or UNKNOWN, optional)",
+              paymentMonth: "string (MM/YYYY format, optional)",
               confidence: "number (0-1, confidence level)",
             },
             null,
