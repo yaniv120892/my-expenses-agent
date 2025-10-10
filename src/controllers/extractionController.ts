@@ -2,31 +2,27 @@ import { Request, Response } from "express";
 import { ExcelExtractionAgent } from "../services/excelAgent";
 import { AIProvider } from "../services/aiProvider";
 import { FileServiceFactory } from "../services/fileServiceFactory";
+import { ExtractionRequestStore } from "../repositories/extractionRequestStore";
+import { WebhookService } from "../services/webhookService";
 import {
   ExtractDataRequestSchema,
-  ExtractionResponseSchema,
-  ErrorResponseSchema,
-} from "../types/validation";
+  ExtractDataRequest,
+  ExtractionRequest,
+  RequestStatus,
+} from "../types/schemas";
 import { ProcessingContext } from "../types";
 import { logger } from "../utils/logger";
 import { v4 as uuidv4 } from "uuid";
 
-interface ValidatedRequest {
-  fileUrl: string;
-  filename: string;
-  userId?: string;
-  options?: {
-    confidenceThreshold?: number;
-    maxRetries?: number;
-    includeRawData?: boolean;
-  };
-}
-
 export class ExtractionController {
   private excelAgent: ExcelExtractionAgent;
+  private requestStore: ExtractionRequestStore;
+  private webhookService: WebhookService;
 
   constructor() {
     this.excelAgent = this.createExcelAgent();
+    this.requestStore = new ExtractionRequestStore();
+    this.webhookService = new WebhookService();
   }
 
   async extractData(req: Request, res: Response): Promise<void> {
@@ -35,47 +31,216 @@ export class ExtractionController {
     try {
       const validationResult = this.validateRequest(req.body);
       if (!validationResult.success) {
-        this.sendValidationError(res, validationResult.error, requestId);
+        this.sendValidationError(
+          res,
+          validationResult.error || "Validation failed",
+          requestId
+        );
         return;
       }
 
-      const { fileUrl, filename, userId, options } =
-        validationResult.data as ValidatedRequest;
-      const context = this.createProcessingContext(
+      const { fileUrl, filename, userId, webhookUrl, options } =
+        validationResult.data!;
+
+      const extractionRequest: ExtractionRequest = {
         requestId,
+        status: RequestStatus.PENDING,
         fileUrl,
         filename,
         userId,
-        options
-      );
+        webhookUrl,
+        options: {
+          confidenceThreshold: options?.confidenceThreshold || 0.7,
+          maxRetries: options?.maxRetries || 3,
+          includeRawData: options?.includeRawData || false,
+        },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
 
-      logger.info("Processing extraction request", {
+      await this.requestStore.createRequest(extractionRequest);
+
+      logger.info("Async extraction request created", {
         requestId,
         filename,
         userId,
-        fileUrl: context.fileUrl,
-        options: context.options,
+        webhookUrl,
+        fileUrl: fileUrl.substring(0, 100) + "...",
       });
 
-      logger.info("Calling ExcelAgent.extractData");
-      const result = await this.excelAgent.extractData(context);
-      logger.info("ExcelAgent.extractData completed", {
-        transactionCount: result.transactions.length,
-        processingTime: result.processingTime,
+      this.processExtractionAsync(extractionRequest).catch((error) => {
+        logger.error("Async processing failed", { requestId, error });
       });
+      const response = {
+        success: true,
+        message: "Extraction request submitted successfully",
+        requestId,
+        status: RequestStatus.PENDING,
+        timestamp: new Date().toISOString(),
+      };
 
-      const response = this.createSuccessResponse(result, requestId);
-      logger.info("Sending successful response", { requestId });
-
-      res.status(200).json(response);
+      res.status(202).json(response);
     } catch (error) {
       this.handleExtractionError(error, requestId, res);
     }
   }
 
-  async healthCheck(req: Request, res: Response): Promise<void> {
-    const response = this.createHealthResponse();
-    res.status(200).json(response);
+  async getRequestStatus(req: Request, res: Response): Promise<void> {
+    const { requestId } = req.params;
+
+    try {
+      if (!requestId) {
+        res.status(400).json({
+          success: false,
+          error: "Request ID is required",
+          message: "Request ID parameter is missing",
+          requestId: "",
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      const status = await this.requestStore.getRequestStatus(requestId);
+
+      if (!status) {
+        res.status(404).json({
+          success: false,
+          error: "Request not found",
+          message: `No request found with ID: ${requestId}`,
+          requestId,
+          timestamp: new Date().toISOString(),
+        });
+        return;
+      }
+
+      res.status(200).json(status);
+    } catch (error) {
+      logger.error("Failed to get request status", { requestId, error });
+      res.status(500).json({
+        success: false,
+        error: "Internal server error",
+        message: "Failed to retrieve request status",
+        requestId,
+        timestamp: new Date().toISOString(),
+      });
+    }
+  }
+
+  private async processExtractionAsync(
+    request: ExtractionRequest
+  ): Promise<void> {
+    const { requestId } = request;
+
+    try {
+      await this.requestStore.updateRequestStatus(
+        requestId,
+        RequestStatus.PROCESSING
+      );
+
+      const context = this.createProcessingContext(request);
+
+      logger.info("Starting async extraction processing", {
+        requestId,
+        filename: request.filename,
+        userId: request.userId,
+      });
+
+      const result = await this.excelAgent.extractData(context);
+
+      logger.info("Async extraction completed successfully", {
+        requestId,
+        transactionCount: result.transactions.length,
+        processingTime: result.processingTime,
+      });
+
+      await this.requestStore.updateRequestStatus(
+        requestId,
+        RequestStatus.COMPLETED,
+        {
+          result,
+        }
+      );
+
+      await this.sendCompletionWebhook(request, result);
+    } catch (error) {
+      logger.error("Async extraction processing failed", { requestId, error });
+
+      const errorMessage =
+        error instanceof Error ? error.message : "Unknown error";
+
+      await this.requestStore.updateRequestStatus(
+        requestId,
+        RequestStatus.FAILED,
+        {
+          error: errorMessage,
+        }
+      );
+
+      await this.sendErrorWebhook(request, errorMessage);
+    }
+  }
+
+  private async sendCompletionWebhook(
+    request: ExtractionRequest,
+    result: any
+  ): Promise<void> {
+    const payload = {
+      requestId: request.requestId,
+      status: RequestStatus.COMPLETED as RequestStatus.COMPLETED,
+      result,
+      completedAt: new Date().toISOString(),
+    };
+
+    const success = await this.webhookService.sendWebhookWithRetry(
+      request.webhookUrl,
+      payload,
+      3
+    );
+
+    if (!success) {
+      logger.error("Failed to send completion webhook after retries", {
+        requestId: request.requestId,
+        webhookUrl: request.webhookUrl,
+      });
+    }
+  }
+
+  private async sendErrorWebhook(
+    request: ExtractionRequest,
+    error: string
+  ): Promise<void> {
+    const payload = {
+      requestId: request.requestId,
+      status: RequestStatus.FAILED as RequestStatus.FAILED,
+      error,
+      completedAt: new Date().toISOString(),
+    };
+
+    const success = await this.webhookService.sendWebhookWithRetry(
+      request.webhookUrl,
+      payload,
+      3
+    );
+
+    if (!success) {
+      logger.error("Failed to send error webhook after retries", {
+        requestId: request.requestId,
+        webhookUrl: request.webhookUrl,
+      });
+    }
+  }
+
+  private createProcessingContext(
+    request: ExtractionRequest
+  ): ProcessingContext {
+    return {
+      requestId: request.requestId,
+      fileUrl: request.fileUrl,
+      filename: request.filename,
+      userId: request.userId,
+      options: request.options!,
+      startTime: Date.now(),
+    };
   }
 
   private createExcelAgent(): ExcelExtractionAgent {
@@ -97,107 +262,62 @@ export class ExtractionController {
     const provider = (process.env.FILE_SERVICE_PROVIDER || "s3") as
       | "s3"
       | "gcs"
-      | "azure"
       | "local";
     return FileServiceFactory.createFileService(provider);
   }
 
-  private validateRequest(body: unknown): {
+  private validateRequest(body: any): {
     success: boolean;
-    data?: unknown;
-    error?: unknown;
+    data?: ExtractDataRequest;
+    error?: string;
   } {
-    const result = ExtractDataRequestSchema.safeParse(body);
-    return {
-      success: result.success,
-      data: result.success ? result.data : undefined,
-      error: result.success ? undefined : result.error,
-    };
-  }
-
-  private createProcessingContext(
-    requestId: string,
-    fileUrl: string,
-    filename: string,
-    userId?: string,
-    options?: ValidatedRequest["options"]
-  ): ProcessingContext {
-    return {
-      requestId,
-      userId,
-      filename,
-      fileUrl,
-      startTime: Date.now(),
-      options: {
-        confidenceThreshold: 0.7,
-        maxRetries: 3,
-        includeRawData: false,
-        ...options,
-      },
-    };
-  }
-
-  private createSuccessResponse(result: unknown, requestId: string): unknown {
-    return ExtractionResponseSchema.parse({
-      success: true,
-      data: result,
-      message: "Data extracted successfully",
-      requestId,
-    });
-  }
-
-  private createHealthResponse(): unknown {
-    return {
-      status: "healthy" as const,
-      service: "excel-extraction-service" as const,
-      timestamp: new Date().toISOString(),
-      version: process.env.npm_package_version || "1.0.0",
-    };
+    try {
+      const validatedData = ExtractDataRequestSchema.parse(body);
+      return { success: true, data: validatedData };
+    } catch (error: any) {
+      const errorMessage = error.errors
+        ?.map((e: any) => `${e.path.join(".")}: ${e.message}`)
+        .join(", ");
+      return {
+        success: false,
+        error: errorMessage || "Invalid request data",
+      };
+    }
   }
 
   private sendValidationError(
     res: Response,
-    error: unknown,
+    error: string,
     requestId: string
   ): void {
-    const errorResponse = ErrorResponseSchema.parse({
+    const response = {
       success: false,
-      error: "Validation failed",
-      message: this.getErrorMessage(error),
+      error,
+      message: "Request validation failed",
       requestId,
       timestamp: new Date().toISOString(),
-    });
-
-    res.status(400).json(errorResponse);
+    };
+    res.status(400).json(response);
   }
 
   private handleExtractionError(
-    error: unknown,
+    error: any,
     requestId: string,
     res: Response
   ): void {
-    logger.error("Extraction request failed", {
-      requestId,
-      error: error instanceof Error ? error.message : "Unknown error",
-    });
+    logger.error("Extraction error", { requestId, error });
 
-    const errorResponse = ErrorResponseSchema.parse({
+    const errorMessage =
+      error instanceof Error ? error.message : "Unknown error occurred";
+
+    const response = {
       success: false,
-      error: "Extraction failed",
-      message:
-        error instanceof Error ? error.message : "Unknown error occurred",
+      error: errorMessage,
+      message: "Extraction request failed",
       requestId,
       timestamp: new Date().toISOString(),
-    });
+    };
 
-    res.status(500).json(errorResponse);
-  }
-
-  private getErrorMessage(error: unknown): string {
-    if (error && typeof error === "object" && "errors" in error) {
-      const errors = error.errors as Array<{ message: string }>;
-      return errors.map((e) => e.message).join(", ");
-    }
-    return "Validation failed";
+    res.status(500).json(response);
   }
 }

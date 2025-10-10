@@ -24,19 +24,14 @@ export class FileServiceProviderImpl implements FileService {
   }
 
   async downloadFile(fileUrl: string): Promise<Buffer> {
+    if (this.provider !== "s3") {
+      throw new Error(
+        `Provider ${this.provider} is not implemented yet. Only S3 is supported.`
+      );
+    }
+
     try {
-      switch (this.provider) {
-        case "s3":
-          return await this.downloadFromS3(fileUrl);
-        case "gcs":
-          return await this.downloadFromGCS(fileUrl);
-        case "azure":
-          return await this.downloadFromAzure(fileUrl);
-        case "local":
-          return await this.downloadFromLocal(fileUrl);
-        default:
-          throw new Error(`Unsupported provider: ${this.provider}`);
-      }
+      return await this.downloadFromS3(fileUrl);
     } catch (error) {
       logger.error("File download error:", error);
       throw new Error(
@@ -104,18 +99,6 @@ export class FileServiceProviderImpl implements FileService {
     }
 
     return await this.streamToBuffer(response.Body);
-  }
-
-  private async downloadFromGCS(fileUrl: string): Promise<Buffer> {
-    throw new Error("GCS provider not implemented yet");
-  }
-
-  private async downloadFromAzure(fileUrl: string): Promise<Buffer> {
-    throw new Error("Azure provider not implemented yet");
-  }
-
-  private async downloadFromLocal(fileUrl: string): Promise<Buffer> {
-    throw new Error("Local provider not implemented yet");
   }
 
   private extractKeyFromUrl(fileUrl: string): string {

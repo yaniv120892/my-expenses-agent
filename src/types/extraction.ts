@@ -3,7 +3,7 @@ import {
   ExtractedTransactionSchema, 
   ExtractedMetadataSchema, 
   StructureAnalysisSchema 
-} from './validation';
+} from './schemas';
 
 export type ExtractedTransaction = z.infer<typeof ExtractedTransactionSchema>;
 export type ExtractedMetadata = z.infer<typeof ExtractedMetadataSchema>;
