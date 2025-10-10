@@ -1,9 +1,17 @@
 import { z } from "zod";
 
+export enum RequestStatus {
+  PENDING = "PENDING",
+  PROCESSING = "PROCESSING",
+  COMPLETED = "COMPLETED",
+  FAILED = "FAILED",
+}
+
 export const ExtractDataRequestSchema = z.object({
   fileUrl: z.string().url("Invalid file URL"),
   filename: z.string().min(1, "Filename is required"),
   userId: z.string().uuid("Invalid user ID").optional(),
+  webhookUrl: z.string().url("Invalid webhook URL"),
   options: z
     .object({
       confidenceThreshold: z.number().min(0).max(1).default(0.7),
@@ -13,12 +21,9 @@ export const ExtractDataRequestSchema = z.object({
     .optional(),
 });
 
-export const HealthCheckResponseSchema = z.object({
-  status: z.literal("healthy"),
-  service: z.literal("excel-extraction-service"),
-  timestamp: z.string().datetime(),
-  version: z.string(),
-});
+export type ExtractDataRequest = z.infer<typeof ExtractDataRequestSchema>;
+
+export type ExtractionRequest = z.infer<typeof ExtractionRequestSchema>;
 
 export const ExtractedTransactionSchema = z.object({
   date: z.string().regex(/^\d{2}\/\d{2}\/\d{4}$/, "Invalid date format"),
@@ -65,6 +70,28 @@ export const ExtractionResultSchema = z.object({
   processingTime: z.number().positive(),
 });
 
+export const ExtractionRequestSchema = z.object({
+  requestId: z.string().uuid(),
+  status: z.nativeEnum(RequestStatus),
+  fileUrl: z.string().url(),
+  filename: z.string().min(1),
+  userId: z.string().uuid().optional(),
+  webhookUrl: z.string().url(),
+  options: z
+    .object({
+      confidenceThreshold: z.number().min(0).max(1),
+      maxRetries: z.number().min(1).max(5),
+      includeRawData: z.boolean(),
+    })
+    .optional(),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  startedAt: z.string().datetime().optional(),
+  completedAt: z.string().datetime().optional(),
+  error: z.string().optional(),
+  result: ExtractionResultSchema.optional(),
+});
+
 export const ExtractionResponseSchema = z.object({
   success: z.boolean(),
   data: ExtractionResultSchema.optional(),
@@ -80,3 +107,29 @@ export const ErrorResponseSchema = z.object({
   requestId: z.string().uuid(),
   timestamp: z.string().datetime(),
 });
+
+export const RequestStatusResponseSchema = z.object({
+  requestId: z.string().uuid(),
+  status: z.nativeEnum(RequestStatus),
+  createdAt: z.string().datetime(),
+  updatedAt: z.string().datetime(),
+  startedAt: z.string().datetime().optional(),
+  completedAt: z.string().datetime().optional(),
+  error: z.string().optional(),
+  result: ExtractionResultSchema.optional(),
+});
+
+export type RequestStatusResponse = z.infer<typeof RequestStatusResponseSchema>;
+
+export const WebhookPayloadSchema = z.object({
+  requestId: z.string().uuid(),
+  status: z.union([
+    z.literal(RequestStatus.COMPLETED),
+    z.literal(RequestStatus.FAILED),
+  ]),
+  result: ExtractionResultSchema.optional(),
+  error: z.string().optional(),
+  completedAt: z.string().datetime(),
+});
+
+export type WebhookPayload = z.infer<typeof WebhookPayloadSchema>;

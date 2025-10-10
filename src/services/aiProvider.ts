@@ -194,7 +194,7 @@ export class AIProvider {
   }
 
   private cleanJsonResponse(response: string): string {
-    let cleaned = response.replace(/```json\n?/g, "").replace(/```\n?/g, "");
+    const cleaned = response.replace(/```json\n?/g, "").replace(/```\n?/g, "");
 
     const jsonMatch = cleaned.match(/(\{.*\}|\[.*\])/s);
     if (jsonMatch) {

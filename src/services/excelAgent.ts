@@ -13,7 +13,7 @@ import {
   ExtractedTransactionSchema,
   ExtractedMetadataSchema,
   StructureAnalysisSchema,
-} from "../types/validation";
+} from "../types/schemas";
 import {
   ExcelWorkbook,
   ExcelSheet,
@@ -55,7 +55,7 @@ export class ExcelExtractionAgent {
         `Structure analysis completed: ${structure.summary}`
       );
 
-      const metadata = await this.extractMetadata(workbook, context, structure);
+      const metadata = await this.extractMetadata(workbook, context);
       processingNotes.push(
         `Metadata extracted with confidence: ${metadata.confidence}`
       );
@@ -63,8 +63,7 @@ export class ExcelExtractionAgent {
       const transactions = await this.extractTransactions(
         workbook,
         context,
-        structure,
-        metadata
+        structure
       );
       processingNotes.push(`Extracted ${transactions.length} transactions`);
 
@@ -131,8 +130,7 @@ export class ExcelExtractionAgent {
 
   private async extractMetadata(
     workbook: ExcelWorkbook,
-    context: ProcessingContext,
-    structure: StructureAnalysis
+    context: ProcessingContext
   ): Promise<ExtractedMetadata> {
     const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
     const textData = this.convertSheetToText(firstSheet, context.filename);
@@ -153,8 +151,7 @@ export class ExcelExtractionAgent {
   private async extractTransactions(
     workbook: ExcelWorkbook,
     context: ProcessingContext,
-    structure: StructureAnalysis,
-    metadata: ExtractedMetadata
+    structure: StructureAnalysis
   ): Promise<ExtractedTransaction[]> {
     const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
     const rows = XLSX.utils.sheet_to_json(firstSheet, {
