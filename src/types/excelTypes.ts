@@ -1,4 +1,4 @@
-import * as XLSX from 'xlsx';
+import * as XLSX from "xlsx";
 
 export type ExcelWorkbook = XLSX.WorkBook;
 export type ExcelSheet = XLSX.WorkSheet;
@@ -31,10 +31,10 @@ export interface AIStructureAnalysis {
 }
 
 export interface AIMetadataExtraction {
-  paymentMethod: string;
+  paymentMethod?: string;
   creditCardLastFour?: string;
-  bankSourceType: 'BANK_CREDIT' | 'NON_BANK_CREDIT';
-  paymentMonth: string;
+  bankSourceType?: "BANK_CREDIT" | "NON_BANK_CREDIT" | "UNKNOWN";
+  paymentMonth?: string;
   confidence: number;
 }
 
@@ -42,7 +42,7 @@ export interface AITransactionExtraction {
   date: string;
   description: string;
   value: number;
-  type: 'EXPENSE' | 'INCOME';
+  type: "EXPENSE" | "INCOME";
 }
 
 export interface CellReference {
