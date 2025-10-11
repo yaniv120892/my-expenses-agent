@@ -27,10 +27,23 @@ app.use((req, res, next) => {
 
 app.use("/api", extractionRoutes);
 
+// Add a catch-all route for undefined routes
+app.use("*", (req, res) => {
+  res.status(404).json({
+    success: false,
+    error: "Not Found",
+    message: "The requested resource was not found",
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.use(errorHandler);
 
-app.listen(port, () => {
-  logger.info(`Excel extraction service running on port ${port}`);
-});
+// Only start the server if not in Vercel environment
+if (process.env.NODE_ENV !== "production" || !process.env.VERCEL) {
+  app.listen(port, () => {
+    logger.info(`Excel extraction service running on port ${port}`);
+  });
+}
 
 export default app;
