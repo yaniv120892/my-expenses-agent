@@ -1,22 +1,23 @@
-import { Request, Response } from 'express';
-import { logger } from '../utils/logger';
+import { NextFunction, Request, Response } from "express";
+import { logger } from "../utils/logger";
 
 export const errorHandler = (
-  error: Error,
+  err: any,
   req: Request,
-  res: Response
+  res: Response,
+  _next: NextFunction
 ): void => {
-  logger.error('Unhandled error:', {
-    error: error.message,
-    stack: error.stack,
+  logger.error("Unhandled error:", {
+    error: err.message,
+    stack: err.stack,
     url: req.url,
-    method: req.method
+    method: req.method,
   });
 
   res.status(500).json({
     success: false,
-    error: 'Internal server error',
-    message: 'An unexpected error occurred',
-    timestamp: new Date().toISOString()
+    error: "Internal server error",
+    message: "An unexpected error occurred",
+    timestamp: new Date().toISOString(),
   });
 };
