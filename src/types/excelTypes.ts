@@ -31,10 +31,9 @@ export interface AIStructureAnalysis {
 }
 
 export interface AIMetadataExtraction {
-  paymentMethod?: string;
-  creditCardLastFour?: string;
-  bankSourceType?: "BANK_CREDIT" | "NON_BANK_CREDIT" | "UNKNOWN";
-  paymentMonth?: string;
+  creditCardLastFour: string;
+  bankSourceType: "BANK_CREDIT" | "NON_BANK_CREDIT" | "UNKNOWN";
+  paymentMonth: string;
   confidence: number;
 }
 

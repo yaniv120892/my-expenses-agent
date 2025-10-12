@@ -335,13 +335,33 @@ export class ExcelExtractionAgent {
     logger.info("Converting AI metadata to metadata:", { aiResult });
 
     // Handle both camelCase and snake_case field names from AI
+    const creditCardLastFour =
+      aiResult.creditCardLastFour || aiResult.credit_card_last_4_digits;
+    const paymentMonth = aiResult.paymentMonth || aiResult.payment_month;
+
+    // Validate required fields
+    if (!creditCardLastFour || !paymentMonth) {
+      const missing = [];
+      if (!creditCardLastFour) missing.push("creditCardLastFour");
+      if (!paymentMonth) missing.push("paymentMonth");
+
+      logger.error("Missing required metadata fields", {
+        missing,
+        aiResult,
+      });
+
+      throw new Error(
+        `Failed to extract required metadata: ${missing.join(", ")}. ` +
+          `Please ensure the Excel file contains credit card number and payment month information.`
+      );
+    }
+
     return {
-      paymentMethod: aiResult.paymentMethod || aiResult.payment_method,
-      creditCardLastFour:
-        aiResult.creditCardLastFour || aiResult.credit_card_last_4_digits,
-      bankSourceType: aiResult.bankSourceType || aiResult.bank_source_type,
-      paymentMonth: aiResult.paymentMonth || aiResult.payment_month,
-      confidence: aiResult.confidence || aiResult.confidence_level,
+      creditCardLastFour,
+      bankSourceType:
+        aiResult.bankSourceType || aiResult.bank_source_type || "UNKNOWN",
+      paymentMonth,
+      confidence: aiResult.confidence || aiResult.confidence_level || 0,
     };
   }
 
@@ -405,13 +425,14 @@ ${textData}
 
   private buildMetadataExtractionPrompt(textData: string): string {
     return `
-Extract metadata from this Excel file:
+Extract metadata from this Excel file. ALL fields are REQUIRED:
 
-1. Payment method (American Express, Visa, Mastercard, CAL, etc.)
-2. Credit card last 4 digits (if available)
-3. Bank source type (BANK_CREDIT for bank statements, NON_BANK_CREDIT for credit card statements)
-4. Payment month (MM/YYYY format)
-5. Confidence level (0-1)
+1. Credit card last 4 digits (REQUIRED - look in headers, titles, or file metadata. Common patterns: "xxxx-1234", "כרטיס *1234", "ב-1234")
+2. Payment month (REQUIRED - MM/YYYY format. Look for dates like "ינואר 2025", "01/2025", billing periods)
+3. Bank source type (BANK_CREDIT for bank statements with "פירוט עסקאות לחשבון", NON_BANK_CREDIT for credit card statements, UNKNOWN if unclear)
+4. Confidence level (0-1 based on data quality)
+
+If you cannot find creditCardLastFour or paymentMonth, set confidence to 0 and explain in the response.
 
 Excel Data:
 ${textData}
@@ -419,7 +440,7 @@ ${textData}
   }
 
   private getMetadataExtractionSystemPrompt(): string {
-    return "You are an expert at extracting financial metadata from Excel files. Always respond with valid JSON only. Be conservative with confidence scores.";
+    return "You are an expert at extracting financial metadata from Excel files. Always respond with valid JSON only. credit card last four digits and payment month are REQUIRED fields - search thoroughly in all rows. If you cannot find them with high confidence, set confidence to 0. Be conservative with confidence scores.";
   }
 
   private buildTransactionExtractionPrompt(formattedData: string): string {
