@@ -1,5 +1,5 @@
 import { Request, Response } from "express";
-import { ExcelExtractionAgent } from "../services/excelAgent";
+import { ExcelExtractionAgentClient } from "../services/excelAgent";
 import { AIProvider } from "../services/aiProvider";
 import { FileServiceFactory } from "../services/fileServiceFactory";
 import { ExtractionRequestStore } from "../repositories/extractionRequestStore";
@@ -15,7 +15,7 @@ import { logger } from "../utils/logger";
 import { v4 as uuidv4 } from "uuid";
 
 export class ExtractionController {
-  private excelAgent: ExcelExtractionAgent;
+  private excelAgent: ExcelExtractionAgentClient;
   private requestStore: ExtractionRequestStore;
   private webhookService: WebhookService;
 
@@ -243,10 +243,10 @@ export class ExtractionController {
     };
   }
 
-  private createExcelAgent(): ExcelExtractionAgent {
+  private createExcelAgent(): ExcelExtractionAgentClient {
     const aiProvider = this.createAIProvider();
     const fileService = this.createFileService();
-    return new ExcelExtractionAgent(aiProvider, fileService);
+    return new ExcelExtractionAgentClient(aiProvider, fileService);
   }
 
   private createAIProvider(): AIProvider {
