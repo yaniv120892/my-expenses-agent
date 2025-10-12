@@ -25,7 +25,7 @@ import {
   AITransactionExtraction,
 } from "../types/excelTypes";
 
-export class ExcelExtractionAgent {
+export class ExcelExtractionAgentClient {
   private aiProvider: AIProvider;
   private fileService: FileService;
 
