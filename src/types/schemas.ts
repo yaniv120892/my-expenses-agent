@@ -34,18 +34,15 @@ export const ExtractedTransactionSchema = z.object({
 });
 
 export const ExtractedMetadataSchema = z.object({
-  paymentMethod: z.string().min(1).optional(),
   creditCardLastFour: z
     .string()
-    .regex(/^\d{4}$/)
-    .optional(),
+    .regex(/^\d{4}$/, "Credit card last four digits required"),
   bankSourceType: z
     .enum(["BANK_CREDIT", "NON_BANK_CREDIT", "UNKNOWN"])
     .optional(),
   paymentMonth: z
     .string()
-    .regex(/^\d{2}\/\d{4}$/, "Invalid month format")
-    .optional(),
+    .regex(/^\d{2}\/\d{4}$/, "Payment month required in MM/YYYY format"),
   confidence: z.number().min(0).max(1),
 });
 

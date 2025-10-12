@@ -33,7 +33,7 @@ export class AIProvider {
       });
 
       const result = await this.model.generateContent(fullPrompt);
-      const response = await result.response;
+      const response = result.response;
 
       logger.info("Gemini API raw response details", {
         response: response,
@@ -108,6 +108,7 @@ export class AIProvider {
       logger.info("Schema detection debug:", {
         typeName,
         schemaType: typeof schema,
+        hasShape: !!zodSchema._def?.shape,
       });
 
       // Check if this is a Zod array schema (for transactions)
@@ -127,26 +128,23 @@ export class AIProvider {
         );
       }
 
-      // Check if this is a metadata schema (ZodObject with paymentMethod)
+      // Check if this is a metadata schema (ZodObject with creditCardLastFour or paymentMonth)
       if (typeName === "ZodObject") {
-        const shape = zodSchema._def?.shape;
-        logger.info("ZodObject shape debug:", {
-          shapeKeys: shape ? Object.keys(shape) : [],
-          hasPaymentMethod: shape && shape.paymentMethod,
-          shape: shape,
-          _def: zodSchema._def,
-        });
+        const shape = zodSchema._def?.shape();
+        const shapeKeys = shape ? Object.keys(shape) : [];
 
-        if (shape && shape.paymentMethod) {
-          logger.info("Detected metadata schema");
+
+
+        if (
+          shapeKeys.includes("creditCardLastFour") ||
+          shapeKeys.includes("paymentMonth")
+        ) {
           return JSON.stringify(
             {
-              paymentMethod:
-                "string (American Express, Visa, Mastercard, etc., optional)",
-              creditCardLastFour: "string (last 4 digits, optional)",
+              creditCardLastFour: "string (REQUIRED - exactly 4 digits)",
               bankSourceType:
                 "string (BANK_CREDIT, NON_BANK_CREDIT, or UNKNOWN, optional)",
-              paymentMonth: "string (MM/YYYY format, optional)",
+              paymentMonth: "string (REQUIRED - MM/YYYY format)",
               confidence: "number (0-1, confidence level)",
             },
             null,
