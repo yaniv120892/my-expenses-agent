@@ -68,9 +68,8 @@ export class ExtractionController {
         fileUrl: fileUrl.substring(0, 100) + "...",
       });
 
-      this.processExtractionAsync(extractionRequest).catch((error) => {
-        logger.error("Async processing failed", { requestId, error });
-      });
+      await this.processExtractionAsync(extractionRequest);
+
       const response = {
         success: true,
         message: "Extraction request submitted successfully",
