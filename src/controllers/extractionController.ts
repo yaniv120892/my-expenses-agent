@@ -68,7 +68,7 @@ export class ExtractionController {
         fileUrl: fileUrl.substring(0, 100) + "...",
       });
 
-      await this.processExtractionAsync(extractionRequest);
+      this.processExtractionAsync(extractionRequest);
 
       const response = {
         success: true,
