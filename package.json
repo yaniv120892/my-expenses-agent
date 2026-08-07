@@ -11,7 +11,9 @@
     "build": "mastra build",
     "start": "mastra start",
     "typecheck": "tsc --noEmit",
-    "test": "tsx scripts/test-async-service.ts",
+    "test": "vitest run tests/unit",
+    "test:eval": "vitest run tests/eval",
+    "test:e2e": "tsx scripts/test-async-service.ts",
     "webhook-receiver": "tsx scripts/webhook-receiver.ts",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix"
@@ -42,6 +44,7 @@
     "eslint": "^8.54.0",
     "mastra": "^1.23.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^3.2.7"
   }
 }
