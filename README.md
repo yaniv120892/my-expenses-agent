@@ -66,11 +66,23 @@ cp .env.example .env   # fill in values
 npm run dev            # mastra dev — serves on http://localhost:4111 with playground
 ```
 
-Manual end-to-end test:
+## Testing
+
+```bash
+npm test           # unit + workflow integration tests (vitest, no API keys needed)
+npm run test:eval  # real-model eval: runs the actual workflow with real Gemini
+                   # against a synthetic 260-row Hebrew Visa statement and grades
+                   # recall, metadata accuracy and chunking. Requires GEMINI_API_KEY;
+                   # auto-skips without it.
+```
+
+The unit suite covers the pure helpers (cleaning, Excel serialization, chunking), retry/timeout behavior, webhook delivery (verbatim URL + exponential backoff), and the full workflow on the real Mastra engine with mocked agents (chunked extraction, `includeRawData`, processing-note order, `maxRetries`, friendly metadata errors).
+
+Manual end-to-end test against a running server:
 
 ```bash
 npm run webhook-receiver   # terminal 1: local webhook sink on :3004
-TEST_FILE_URL="https://<bucket>.s3.<region>.amazonaws.com/imports/<file>.xlsx" npm test   # terminal 2
+TEST_FILE_URL="https://<bucket>.s3.<region>.amazonaws.com/imports/<file>.xlsx" npm run test:e2e   # terminal 2
 ```
 
 Other scripts: `npm run typecheck`, `npm run lint`, `npm run build` (produces `.vercel/output` + `.mastra/output`).
