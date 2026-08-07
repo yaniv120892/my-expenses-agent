@@ -106,3 +106,7 @@ temp/
 
 # Test output files
 extracted-transactions/
+
+# Mastra build output
+.mastra/
+.vercel/
