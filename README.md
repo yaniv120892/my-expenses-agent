@@ -1,28 +1,31 @@
 # Excel Extraction Service
 
-AI-powered microservice for extracting transaction data from Excel files using OpenAI's GPT models.
+AI-powered Excel data extraction microservice built on [Mastra](https://mastra.ai). It downloads a credit-card/bank statement from S3, runs a multi-step AI workflow (Gemini) to detect the sheet structure, extract statement metadata, and extract all transactions, then reports the result back over a webhook.
 
-## Features
+## Architecture
 
-- **AI-Powered Extraction**: Uses GPT-4 to intelligently parse Excel files
-- **Multiple Format Support**: Handles various bank and credit card statement formats
-- **Structured Output**: Returns validated JSON with transaction data and metadata
-- **S3 Integration**: Downloads files directly from S3 URLs
-- **Type Safety**: Full TypeScript support with Zod validation
-- **Error Handling**: Comprehensive error handling and logging
+The pipeline is a Mastra workflow (`excelExtractionWorkflow`) with five steps:
 
-## API Endpoints
+1. **download-and-parse** — downloads the file from S3 and parses the first sheet (retries S3 transients).
+2. **analyze-structure** — a Gemini agent identifies the header row, data start row, and date/description/amount column indices.
+3. **extract-metadata** — a Gemini agent extracts the card's last four digits, payment month (MM/YYYY), and bank source type (Hebrew-aware prompts).
+4. **extract-transactions** — a Gemini agent extracts transactions in chunks (`EXTRACTION_CHUNK_SIZE`, default 200 rows per call — no row cap). When `includeRawData` is requested, the original row cells are attached to each transaction.
+5. **validate-and-clean** — pure validation/cleaning (drops invalid rows, normalizes descriptions, warns on low confidence).
 
-### POST /api/extract
+All AI calls use zod-schema structured output (validated at runtime), honor the per-request `options.maxRetries` with exponential backoff, and are bounded by `AI_TIMEOUT` per attempt.
 
-Extract transaction data from an Excel file.
+Request state lives in Upstash Redis (`extraction_request:<requestId>`, 24h TTL) with the lifecycle `PENDING → PROCESSING → COMPLETED | FAILED`. Extraction runs asynchronously after the API responds; on Vercel the invocation is kept alive with `waitUntil` until the workflow and webhook delivery finish.
 
-**Request Body:**
+## API
+
+### `POST /api/extract`
+
 ```json
 {
-  "fileUrl": "https://s3.amazonaws.com/bucket/file.xlsx",
-  "filename": "statement.xlsx",
-  "userId": "user-uuid",
+  "fileUrl": "https://<bucket>.s3.<region>.amazonaws.com/imports/file.xlsx",
+  "filename": "file.xlsx",
+  "userId": "uuid (optional)",
+  "webhookUrl": "https://api.example.com/excel-extraction-agent/webhook?token=...",
   "options": {
     "confidenceThreshold": 0.7,
     "maxRetries": 3,
@@ -31,131 +34,61 @@ Extract transaction data from an Excel file.
 }
 ```
 
-**Response:**
+Responds `202` with `{ success, message, requestId, status: "PENDING", timestamp }`. When processing finishes, the service POSTs to `webhookUrl` **exactly as given** (query string preserved) with:
+
 ```json
 {
-  "success": true,
-  "data": {
-    "transactions": [
-      {
-        "date": "01/08/2025",
-        "description": "Business Name",
-        "value": 100.50,
-        "type": "EXPENSE"
-      }
-    ],
-    "metadata": {
-      "paymentMethod": "American Express",
-      "creditCardLastFour": "4730",
-      "bankSourceType": "NON_BANK_CREDIT",
-      "paymentMonth": "08/2025",
-      "confidence": 0.95
-    },
-    "structure": {
-      "headerRow": 4,
-      "dataStartRow": 5,
-      "columnMappings": {
-        "date": 0,
-        "description": 1,
-        "amount": 2
-      },
-      "fileType": "American Express",
-      "confidence": 0.9,
-      "summary": "Standard Amex format detected"
-    },
-    "processingNotes": [
-      "File downloaded and parsed successfully",
-      "Structure analysis completed: Standard Amex format detected",
-      "Metadata extracted with confidence: 0.95",
-      "Extracted 15 transactions"
-    ],
-    "processingTime": 2500
-  },
-  "message": "Data extracted successfully",
-  "requestId": "uuid"
+  "requestId": "uuid",
+  "status": "COMPLETED | FAILED",
+  "result": { "transactions": [], "metadata": {}, "structure": {}, "processingNotes": [], "processingTime": 0 },
+  "error": "only on FAILED",
+  "completedAt": "ISO timestamp"
 }
 ```
 
-### GET /api/health
+Webhook delivery is retried 3 times with exponential backoff.
 
-Health check endpoint.
+### `GET /api/status/:requestId`
 
-**Response:**
-```json
-{
-  "status": "healthy",
-  "service": "excel-extraction-service",
-  "timestamp": "2025-10-02T14:00:00.000Z",
-  "version": "1.0.0"
-}
-```
+Returns the stored request state (`requestId`, `status`, timestamps, `error?`, `result?`); `404` if unknown/expired.
 
-## Environment Variables
+### `GET /api/health`
 
-```bash
-NODE_ENV=development
-PORT=3000
-LOG_LEVEL=info
+`200` when Redis is reachable, `503` otherwise.
 
-OPENAI_API_KEY=your_openai_api_key
-AI_MODEL=gpt-4-turbo
-AI_MAX_TOKENS=2000
-AI_TEMPERATURE=0.1
-AI_TIMEOUT=60000
-
-S3_REGION=eu-west-3
-S3_ACCESS_KEY_ID=your_access_key
-S3_SECRET_ACCESS_KEY=your_secret_key
-S3_BUCKET_NAME=my-expenses-private
-```
+Mastra's built-in server routes (agents/workflows introspection, playground APIs) are mounted under `/mastra-api` so they never collide with the public contract above.
 
 ## Development
 
 ```bash
-# Install dependencies
 npm install
-
-# Start development server
-npm run dev
-
-# Build for production
-npm run build
-
-# Start production server
-npm start
+cp .env.example .env   # fill in values
+npm run dev            # mastra dev — serves on http://localhost:4111 with playground
 ```
 
-## Testing
+Manual end-to-end test:
 
 ```bash
-# Test the service (make sure it's running first)
-node test-service.js
+npm run webhook-receiver   # terminal 1: local webhook sink on :3004
+TEST_FILE_URL="https://<bucket>.s3.<region>.amazonaws.com/imports/<file>.xlsx" npm test   # terminal 2
 ```
 
-## Architecture
+Other scripts: `npm run typecheck`, `npm run lint`, `npm run build` (produces `.vercel/output` + `.mastra/output`).
 
-The service follows a clean architecture pattern:
+## Deployment (Vercel)
 
-- **Controllers**: Handle HTTP requests and responses
-- **Services**: Business logic for Excel processing and AI integration
-- **Types**: TypeScript interfaces and Zod schemas for validation
-- **Utils**: Logging and utility functions
+The Mastra Vercel deployer is configured in `src/mastra/index.ts` (`maxDuration: 300`, `memory: 1024`). Vercel project settings: Build Command `npm run build`, Framework "Other", Node **22.x** (the function runtime is stamped from the build-time Node version). Set all env vars from `.env.example` in the Vercel project.
 
-## AI Processing Flow
+## Environment variables
 
-1. **Download**: Fetch Excel file from S3 URL
-2. **Structure Analysis**: AI analyzes file structure and identifies columns
-3. **Metadata Extraction**: AI extracts payment method, card number, etc.
-4. **Transaction Extraction**: AI extracts all transaction data
-5. **Validation**: Clean and validate extracted data
-6. **Response**: Return structured JSON with results
-
-## Supported File Formats
-
-- American Express statements
-- Visa/Mastercard statements
-- CAL credit card statements
-- Bank account statements
-- Various Hebrew and English formats
-
-The AI can adapt to new formats without code changes.
+| Variable | Purpose | Default |
+|---|---|---|
+| `GEMINI_API_KEY` | Gemini API key | required |
+| `AI_TEMPERATURE` | Model temperature | `0.1` |
+| `AI_TIMEOUT` | Per-attempt AI call timeout (ms) | `60000` |
+| `EXTRACTION_CHUNK_SIZE` | Data rows per transaction-extraction AI call | `200` |
+| `FILE_SERVICE_PROVIDER` | Only `s3` is supported | `s3` |
+| `FILE_SERVICE_REGION` / `FILE_SERVICE_ACCESS_KEY_ID` / `FILE_SERVICE_SECRET_ACCESS_KEY` / `FILE_SERVICE_BUCKET_NAME` | S3 access | required |
+| `REDIS_URL` / `REDIS_TOKEN` | Upstash Redis REST credentials | required |
+| `PORT` | Local dev server port | `4111` |
+| `LOG_LEVEL` | Pino log level | `info` |
