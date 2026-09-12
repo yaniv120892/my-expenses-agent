@@ -8,6 +8,9 @@ export interface ColumnMappings {
   date: number;
   description: number;
   amount: number;
+  // The billed amount, when a statement carries it beside the original
+  // (foreign-currency charges differ between the two).
+  chargedAmount?: number | null;
 }
 
 export interface ExcelRowData {

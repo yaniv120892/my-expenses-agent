@@ -164,6 +164,8 @@ export class AIProvider {
           date: "number (0-based column index for date)",
           description: "number (0-based column index for description)",
           amount: "number (0-based column index for amount)",
+          chargedAmount:
+            "number or null (0-based column index of the billed/charged amount when the sheet has it beside the original amount; null otherwise)",
         },
         fileType: "string (e.g., 'American Express', 'Visa', 'Bank statement')",
         confidence: "number (0-1, confidence in analysis)",

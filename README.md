@@ -4,7 +4,7 @@ AI-powered microservice for extracting transaction data from Excel files using O
 
 ## Features
 
-- **AI-Powered Extraction**: Uses GPT-4 to intelligently parse Excel files
+- **Model for the layout, cells for the rows**: the model identifies the header row and the date, description and amount columns; transactions are then read from the cells verbatim, credits included, and checked against the total the statement states for itself. The model reads rows as text only when the cells do not parse.
 - **Multiple Format Support**: Handles various bank and credit card statement formats
 - **Structured Output**: Returns validated JSON with transaction data and metadata
 - **S3 Integration**: Downloads files directly from S3 URLs

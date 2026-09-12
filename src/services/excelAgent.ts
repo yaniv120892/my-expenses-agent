@@ -9,6 +9,7 @@ import {
   ProcessingContext,
 } from "../types";
 import { logger } from "../utils/logger";
+import { findStatedTotal, parseTransactionRows } from "./rowParser";
 import {
   ExtractedTransactionSchema,
   ExtractedMetadataSchema,
@@ -60,12 +61,17 @@ export class ExcelExtractionAgentClient {
         `Metadata extracted with confidence: ${metadata.confidence}`
       );
 
-      const transactions = await this.extractTransactions(
+      const { transactions, source } = await this.extractTransactions(
         workbook,
         context,
         structure
       );
-      processingNotes.push(`Extracted ${transactions.length} transactions`);
+      processingNotes.push(
+        `Extracted ${transactions.length} transactions from ${source}`
+      );
+      processingNotes.push(
+        this.statedTotalNote(workbook, structure, transactions, context)
+      );
 
       const validatedResult = await this.validateAndCleanData(
         transactions,
@@ -148,20 +154,41 @@ export class ExcelExtractionAgentClient {
     return this.convertAIMetadataToMetadata(aiResult);
   }
 
+  /**
+   * Rows come from the cells once the columns are known. The model only reads
+   * them when the cells do not parse at all — a layout the mapping misread —
+   * because it shortens or transliterates merchants and drops rows, and does
+   * so differently on every pass.
+   */
   private async extractTransactions(
     workbook: ExcelWorkbook,
     context: ProcessingContext,
     structure: StructureAnalysis
-  ): Promise<ExtractedTransaction[]> {
+  ): Promise<{ transactions: ExtractedTransaction[]; source: string }> {
     const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-    const rows = XLSX.utils.sheet_to_json(firstSheet, {
-      header: 1,
-      raw: false,
-    }) as ExcelRowData[];
+    const cellRows = this.sheetRows(firstSheet, true).slice(
+      structure.dataStartRow
+    );
 
-    const dataRows = rows.slice(structure.dataStartRow);
+    const fromCells = parseTransactionRows(cellRows, structure.columnMappings);
+    if (fromCells.length > 0) {
+      logger.info("Transactions read from cells", {
+        requestId: context.requestId,
+        count: fromCells.length,
+      });
+      return { transactions: fromCells, source: "cells" };
+    }
+
+    logger.warn("No transaction row parsed from cells; asking the model", {
+      requestId: context.requestId,
+      columnMappings: structure.columnMappings,
+      dataStartRow: structure.dataStartRow,
+    });
+    const textRows = this.sheetRows(firstSheet, false).slice(
+      structure.dataStartRow
+    );
     const formattedData = this.formatRowsForAI(
-      dataRows,
+      textRows,
       structure.columnMappings
     );
 
@@ -172,7 +199,53 @@ export class ExcelExtractionAgentClient {
       AITransactionExtraction[]
     >(prompt, ExtractedTransactionSchema.array(), systemPrompt);
 
-    return this.convertAITransactionsToTransactions(aiResult);
+    return {
+      transactions: this.convertAITransactionsToTransactions(aiResult),
+      source: "the model",
+    };
+  }
+
+  private sheetRows(sheet: ExcelSheet, raw: boolean): ExcelRowData[] {
+    return XLSX.utils.sheet_to_json(sheet, { header: 1, raw }) as ExcelRowData[];
+  }
+
+  /**
+   * A statement that states its own total lets the extraction be checked
+   * against it: the expense rows must add up to it. A mismatch is reported,
+   * not fatal — not every issuer states one, and a credit sits outside it.
+   */
+  private statedTotalNote(
+    workbook: ExcelWorkbook,
+    structure: StructureAnalysis,
+    transactions: ExtractedTransaction[],
+    context: ProcessingContext
+  ): string {
+    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+    const titleRows = this.sheetRows(firstSheet, true).slice(
+      0,
+      structure.dataStartRow
+    );
+    const statedTotal = findStatedTotal(titleRows);
+    if (statedTotal === null) {
+      return "No stated total found in the title rows";
+    }
+
+    const expenseTotal = transactions
+      .filter((transaction) => transaction.type === "EXPENSE")
+      .reduce((sum, transaction) => sum + transaction.value, 0);
+    const matches = Math.abs(expenseTotal - statedTotal) < 0.01;
+    if (!matches) {
+      logger.warn("Expense rows do not add up to the statement's stated total", {
+        requestId: context.requestId,
+        statedTotal,
+        expenseTotal,
+      });
+    }
+    return matches
+      ? `Expense rows add up to the stated total ${statedTotal}`
+      : `Expense rows add up to ${expenseTotal.toFixed(
+          2
+        )} but the statement states ${statedTotal}`;
   }
 
   private async validateAndCleanData(
@@ -298,10 +371,12 @@ export class ExcelExtractionAgentClient {
   private cleanDescription(description: string): string {
     if (!description) return "";
 
+    // Punctuation goes before whitespace is collapsed, or "a - b" keeps a
+    // double space where the dash was.
     return description
-      .trim()
-      .replace(/\s+/g, " ")
       .replace(/[^\w\s\u0590-\u05FF]/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
       .substring(0, 200);
   }
 
@@ -410,7 +485,7 @@ Analyze this Excel file structure and identify:
 
 1. Header row location (0-based index)
 2. Data start row (0-based index, first row with actual transaction data)
-3. Column mappings for: date, description, amount (0-based column indices)
+3. Column mappings for: date, description, amount (0-based column indices). When the sheet has both an original transaction amount and a separate charged/billed amount column, map amount to the original and chargedAmount to the billed one; otherwise set chargedAmount to null
 4. File format type (American Express, Visa, Mastercard, CAL, Bank statement, etc.)
 5. Any special formatting or patterns
 
