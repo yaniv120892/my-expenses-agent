@@ -8,6 +8,7 @@
     "start": "node dist/index.js",
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
     "test": "npx ts-node test-async-service.ts",
+    "test:unit": "TS_NODE_TRANSPILE_ONLY=1 node --require ts-node/register --test src/services/rowParser.test.ts",
     "webhook-receiver": "npx ts-node webhook-receiver.ts",
     "lint": "eslint src/**/*.ts",
     "lint:fix": "eslint src/**/*.ts --fix"

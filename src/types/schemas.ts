@@ -53,6 +53,7 @@ export const StructureAnalysisSchema = z.object({
     date: z.number().int().min(0),
     description: z.number().int().min(0),
     amount: z.number().int().min(0),
+    chargedAmount: z.number().int().min(0).nullable().optional(),
   }),
   fileType: z.string(),
   confidence: z.number().min(0).max(1),
