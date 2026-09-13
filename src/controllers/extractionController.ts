@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import { waitUntil } from "@vercel/functions";
 import { ExcelExtractionAgentClient } from "../services/excelAgent";
 import { AIProvider } from "../services/aiProvider";
 import { FileServiceFactory } from "../services/fileServiceFactory";
@@ -68,7 +69,9 @@ export class ExtractionController {
         fileUrl: fileUrl.substring(0, 100) + "...",
       });
 
-      this.processExtractionAsync(extractionRequest);
+      // A serverless function may be frozen once its response is sent;
+      // waitUntil keeps it alive until the extraction and webhook settle.
+      waitUntil(this.processExtractionAsync(extractionRequest));
 
       const response = {
         success: true,
