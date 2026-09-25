@@ -1,5 +1,4 @@
-# One small pull request per outdated package, daily. The jobs live in
-# yaniv120892/claude-config; this file only names the checks a bump must pass.
+# Only the checks a bump must pass live here; the called workflow does the rest.
 name: Dependency upgrades
 
 on:
