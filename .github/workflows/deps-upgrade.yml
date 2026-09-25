@@ -1,4 +1,4 @@
-# Only the checks a bump must pass live here; the called workflow does the rest.
+# Every check this repo has; there is no ci.yml to mirror yet.
 name: Dependency upgrades
 
 on:
@@ -18,7 +18,9 @@ concurrency:
 jobs:
   upgrade:
     uses: yaniv120892/claude-config/.github/workflows/deps-upgrade.yml@main
-    secrets: inherit
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     with:
       check_commands: |
         npm run lint
