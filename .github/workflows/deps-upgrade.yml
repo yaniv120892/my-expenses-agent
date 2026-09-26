@@ -1,0 +1,28 @@
+# Every check this repo has; there is no ci.yml to mirror yet.
+name: Dependency upgrades
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+concurrency:
+  group: deps-upgrade
+  cancel-in-progress: false
+
+jobs:
+  upgrade:
+    uses: yaniv120892/claude-config/.github/workflows/deps-upgrade.yml@main
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    with:
+      check_commands: |
+        npm run lint
+        npm run build
+        npm run test:unit
