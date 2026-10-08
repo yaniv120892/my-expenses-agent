@@ -1,43 +1,149 @@
 import * as XLSX from "xlsx";
 import { ExtractedTransaction } from "../types";
 import { ColumnMappings, ExcelRowData } from "../types/excelTypes";
+import { CurrencyDetection, detectCurrency } from "./currency";
+
+// The currency an unlabelled amount on an Israeli issuer's statement is in.
+const STATEMENT_CURRENCY = "ILS";
 
 /**
  * Reads transactions straight from the sheet's cells once the columns are
  * known. A model re-emitting the rows shortens or transliterates merchant
  * names and occasionally drops a row, and it does so differently on every
  * pass — the cells do not.
+ *
+ * `textRows` are the same rows as the sheet displays them; a numeric cell's
+ * currency lives only in its number format, so the symbol is read from there.
  */
 export function parseTransactionRows(
   rows: ExcelRowData[],
-  mappings: ColumnMappings
+  mappings: ColumnMappings,
+  textRows: ExcelRowData[] = rows
 ): ExtractedTransaction[] {
-  const transactions: ExtractedTransaction[] = [];
+  const parsedRows = rows.flatMap((row, index) => {
+    const parsed = parseRow(row, textRows[index] ?? row, mappings);
+    return parsed === null ? [] : [parsed];
+  });
+  const statementHasForeignRows = parsedRows.some(isForeignRow);
 
-  for (const row of rows) {
-    const date = parseCellDate(row[mappings.date]);
-    const description = parseCellText(row[mappings.description]);
-    // A statement that bills in a different currency than it charges carries
-    // both amounts; the billed one is what the account actually paid. A refund
-    // may leave the billed cell empty and carry a negative charged amount.
-    const amount =
-      parseCellAmount(cellAt(row, mappings.chargedAmount)) ??
-      parseCellAmount(row[mappings.amount]);
+  return parsedRows.map((parsed) => toExtractedTransaction(parsed, statementHasForeignRows));
+}
 
-    if (date === null || description === "" || amount === null || amount === 0) {
-      continue;
-    }
+type ParsedRow = {
+  date: string;
+  description: string;
+  originalAmount: number | null;
+  chargedAmount: number | null;
+  originalCurrency: CurrencyDetection;
+  chargedCurrency: CurrencyDetection;
+};
 
-    transactions.push({
-      date,
-      description,
-      value: roundToCents(Math.abs(amount)),
-      type: amount < 0 ? "INCOME" : "EXPENSE",
-      rawData: {},
-    });
+function parseRow(
+  row: ExcelRowData,
+  textRow: ExcelRowData,
+  mappings: ColumnMappings
+): ParsedRow | null {
+  const date = parseCellDate(row[mappings.date]);
+  const description = parseCellText(row[mappings.description]);
+  const originalAmount = parseCellAmount(row[mappings.amount]);
+  const chargedAmount = parseCellAmount(cellAt(row, mappings.chargedAmount));
+  const amount = chargedAmount ?? originalAmount;
+
+  if (date === null || description === "" || amount === null || amount === 0) {
+    return null;
   }
 
-  return transactions;
+  return {
+    date,
+    description,
+    originalAmount,
+    chargedAmount,
+    originalCurrency: detectCellCurrency(textRow, mappings.currency, mappings.amount),
+    chargedCurrency: detectCellCurrency(
+      textRow,
+      mappings.chargedCurrency,
+      mappings.chargedAmount
+    ),
+  };
+}
+
+function toExtractedTransaction(
+  parsed: ParsedRow,
+  statementHasForeignRows: boolean
+): ExtractedTransaction {
+  // A statement that bills in a different currency than it charges carries
+  // both amounts; the billed one is what the account actually paid. A refund
+  // may leave the billed cell empty and carry a negative charged amount.
+  const amount = parsed.chargedAmount ?? parsed.originalAmount ?? 0;
+  const transaction: ExtractedTransaction = {
+    date: parsed.date,
+    description: parsed.description,
+    value: roundToCents(Math.abs(amount)),
+    type: amount < 0 ? "INCOME" : "EXPENSE",
+    rawData: {},
+  };
+
+  if (parsed.originalAmount !== null) {
+    transaction.originalAmount = roundToCents(Math.abs(parsed.originalAmount));
+  }
+  if (parsed.originalCurrency.kind === "code") {
+    transaction.originalCurrency = parsed.originalCurrency.code;
+  }
+  if (parsed.chargedAmount !== null) {
+    transaction.chargedAmount = roundToCents(Math.abs(parsed.chargedAmount));
+  }
+  if (parsed.chargedCurrency.kind === "code") {
+    transaction.chargedCurrency = parsed.chargedCurrency.code;
+  }
+  if (isCurrencyAmbiguous(parsed, statementHasForeignRows)) {
+    transaction.currencyAmbiguous = true;
+  }
+  return transaction;
+}
+
+function isForeignRow(parsed: ParsedRow): boolean {
+  const namesForeignCurrency =
+    parsed.originalCurrency.kind === "code" &&
+    parsed.originalCurrency.code !== STATEMENT_CURRENCY;
+  const billedDiffersFromOriginal =
+    parsed.originalAmount !== null &&
+    parsed.chargedAmount !== null &&
+    Math.abs(parsed.originalAmount) !== Math.abs(parsed.chargedAmount);
+  return namesForeignCurrency || billedDiffersFromOriginal;
+}
+
+/**
+ * Without a billed amount, the original amount is only safe to treat as the
+ * statement's own currency when nothing on the statement says otherwise:
+ * in a file that carries foreign charges, an unlabelled original with an
+ * empty billed cell could be in either currency.
+ */
+function isCurrencyAmbiguous(
+  parsed: ParsedRow,
+  statementHasForeignRows: boolean
+): boolean {
+  const markerIsAmbiguous =
+    parsed.originalCurrency.kind === "ambiguous" ||
+    parsed.chargedCurrency.kind === "ambiguous";
+  const unlabelledOriginalWithoutBilled =
+    parsed.chargedAmount === null &&
+    parsed.originalCurrency.kind === "none" &&
+    statementHasForeignRows;
+  return markerIsAmbiguous || unlabelledOriginalWithoutBilled;
+}
+
+function detectCellCurrency(
+  textRow: ExcelRowData,
+  currencyColumn: number | null | undefined,
+  amountColumn: number | null | undefined
+): CurrencyDetection {
+  const fromCurrencyColumn = detectCurrency(
+    parseCellText(cellAt(textRow, currencyColumn))
+  );
+  if (fromCurrencyColumn.kind !== "none") {
+    return fromCurrencyColumn;
+  }
+  return detectCurrency(parseCellText(cellAt(textRow, amountColumn)));
 }
 
 /** DD/MM/YYYY from an Excel serial, a Date, or a day-first text date. */

@@ -170,7 +170,15 @@ export class ExcelExtractionAgentClient {
       structure.dataStartRow
     );
 
-    const fromCells = parseTransactionRows(cellRows, structure.columnMappings);
+    const displayedRows = this.sheetRows(firstSheet, false).slice(
+      structure.dataStartRow
+    );
+
+    const fromCells = parseTransactionRows(
+      cellRows,
+      structure.columnMappings,
+      displayedRows
+    );
     if (fromCells.length > 0) {
       logger.info("Transactions read from cells", {
         requestId: context.requestId,
@@ -485,7 +493,7 @@ Analyze this Excel file structure and identify:
 
 1. Header row location (0-based index)
 2. Data start row (0-based index, first row with actual transaction data)
-3. Column mappings for: date, description, amount (0-based column indices). When the sheet has both an original transaction amount and a separate charged/billed amount column, map amount to the original and chargedAmount to the billed one; otherwise set chargedAmount to null
+3. Column mappings for: date, description, amount (0-based column indices). When the sheet has both an original transaction amount and a separate charged/billed amount column, map amount to the original and chargedAmount to the billed one; otherwise set chargedAmount to null. If a separate column names the currency of an amount (e.g. "מטבע עסקה" / "USD"), map it as currency (original) or chargedCurrency (billed); otherwise set them to null
 4. File format type (American Express, Visa, Mastercard, CAL, Bank statement, etc.)
 5. Any special formatting or patterns
 

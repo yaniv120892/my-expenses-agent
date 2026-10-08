@@ -1,0 +1,66 @@
+export type CurrencyDetection =
+  | { kind: "none" }
+  | { kind: "code"; code: string }
+  | { kind: "ambiguous"; marker: string };
+
+// Israeli issuers print a bare "$" for US dollars and spell other dollars out
+// by code, so a bare "$" resolves to USD while "C$" or "R$" stays ambiguous,
+// as do "¥" and "kr", each of which names several currencies.
+const MARKERS: { pattern: RegExp; code: string | null }[] = [
+  { pattern: /(?<![A-Z])(?!US\$)[A-Z]{1,2}\$/u, code: null },
+  { pattern: /US\$|\$/u, code: "USD" },
+  { pattern: /₪|ש["״']?ח|\bNIS\b/iu, code: "ILS" },
+  { pattern: /€|אירו|יורו/u, code: "EUR" },
+  { pattern: /£|ליש["״']?ט/u, code: "GBP" },
+  { pattern: /דולר/u, code: "USD" },
+  { pattern: /¥|\bkr\b/iu, code: null },
+];
+
+const ISO_CODE = /\b[A-Z]{3}\b/g;
+const KNOWN_ISO_CODES = new Set(Intl.supportedValuesOf("currency"));
+const ANY_CURRENCY_SYMBOL = /\p{Sc}/u;
+
+/**
+ * The currency a cell's text names, by ISO code or symbol. Text that names
+ * two different currencies, or a symbol shared by several, is ambiguous.
+ */
+export function detectCurrency(text: string): CurrencyDetection {
+  const codes = new Set<string>();
+  let ambiguousMarker: string | null = null;
+
+  for (const isoCode of text.match(ISO_CODE) ?? []) {
+    if (KNOWN_ISO_CODES.has(isoCode)) {
+      codes.add(isoCode);
+    }
+  }
+
+  const textWithoutCodes = text.replace(ISO_CODE, "");
+  for (const { pattern, code } of MARKERS) {
+    const match = textWithoutCodes.match(pattern);
+    if (!match) {
+      continue;
+    }
+    if (code === null) {
+      ambiguousMarker = match[0];
+    } else {
+      codes.add(code);
+    }
+  }
+
+  const hasUnknownSymbol =
+    codes.size === 0 &&
+    ambiguousMarker === null &&
+    ANY_CURRENCY_SYMBOL.test(textWithoutCodes);
+  if (hasUnknownSymbol) {
+    ambiguousMarker = textWithoutCodes.match(ANY_CURRENCY_SYMBOL)?.[0] ?? "";
+  }
+
+  if (ambiguousMarker !== null || codes.size > 1) {
+    return {
+      kind: "ambiguous",
+      marker: ambiguousMarker ?? [...codes].join("/"),
+    };
+  }
+  const [code] = codes;
+  return code === undefined ? { kind: "none" } : { kind: "code", code };
+}
