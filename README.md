@@ -41,7 +41,11 @@ Extract transaction data from an Excel file.
         "date": "01/08/2025",
         "description": "Business Name",
         "value": 100.50,
-        "type": "EXPENSE"
+        "type": "EXPENSE",
+        "originalAmount": 27.40,
+        "originalCurrency": "USD",
+        "chargedAmount": 100.50,
+        "chargedCurrency": "ILS"
       }
     ],
     "metadata": {
@@ -75,6 +79,22 @@ Extract transaction data from an Excel file.
   "requestId": "uuid"
 }
 ```
+
+**Amounts and currency.** `value` is unchanged: the billed amount when the
+statement has one, otherwise the original. The other amount fields are
+additive and optional, so a consumer reading only `value` is unaffected:
+
+- `originalAmount` / `chargedAmount` — magnitudes of the original and billed
+  cells, when present. The sign is in `type`.
+- `originalCurrency` / `chargedCurrency` — ISO 4217 codes, only when the cell
+  (its symbol, its number format, or a mapped currency column) names one
+  unambiguously. A bare `$` is USD; absent means the statement's own currency.
+- `currencyAmbiguous: true` — the row's currency cannot be told: a symbol that
+  names several currencies (`¥`, `kr`, `C$`, `דולר קנדי`), or an unlabelled
+  amount with no billed amount on a statement that has a billed column and a
+  row naming a foreign currency (an instalment's differing amounts are both
+  ILS and do not count). A consumer must
+  not treat such a row's `value` as the statement currency.
 
 ### GET /api/health
 

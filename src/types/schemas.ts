@@ -25,12 +25,20 @@ export type ExtractDataRequest = z.infer<typeof ExtractDataRequestSchema>;
 
 export type ExtractionRequest = z.infer<typeof ExtractionRequestSchema>;
 
+const CurrencyCodeSchema = z.string().regex(/^[A-Z]{3}$/, "ISO 4217 code");
+
 export const ExtractedTransactionSchema = z.object({
   date: z.string().regex(/^\d{2}\/\d{2}\/\d{4}$/, "Invalid date format"),
   description: z.string().min(1).max(200),
   value: z.number().positive("Value must be positive"),
   type: z.enum(["EXPENSE", "INCOME"]),
   rawData: z.record(z.union([z.string(), z.number()])).optional(),
+  // Additive: a consumer that reads only `value` sees what it always did.
+  originalAmount: z.number().nonnegative().optional(),
+  originalCurrency: CurrencyCodeSchema.optional(),
+  chargedAmount: z.number().nonnegative().optional(),
+  chargedCurrency: CurrencyCodeSchema.optional(),
+  currencyAmbiguous: z.literal(true).optional(),
 });
 
 export const ExtractedMetadataSchema = z.object({
@@ -54,6 +62,8 @@ export const StructureAnalysisSchema = z.object({
     description: z.number().int().min(0),
     amount: z.number().int().min(0),
     chargedAmount: z.number().int().min(0).nullable().optional(),
+    currency: z.number().int().min(0).nullable().optional(),
+    chargedCurrency: z.number().int().min(0).nullable().optional(),
   }),
   fileType: z.string(),
   confidence: z.number().min(0).max(1),

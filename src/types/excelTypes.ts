@@ -11,6 +11,10 @@ export interface ColumnMappings {
   // The billed amount, when a statement carries it beside the original
   // (foreign-currency charges differ between the two).
   chargedAmount?: number | null;
+  // Columns naming each amount's currency, when the sheet has them rather
+  // than printing a symbol inside the amount cell.
+  currency?: number | null;
+  chargedCurrency?: number | null;
 }
 
 export interface ExcelRowData {

@@ -9,7 +9,11 @@ import {
   ProcessingContext,
 } from "../types";
 import { logger } from "../utils/logger";
-import { findStatedTotal, parseTransactionRows } from "./rowParser";
+import {
+  findStatedTotal,
+  readSheetTransactions,
+  sheetRows,
+} from "./rowParser";
 import {
   ExtractedTransactionSchema,
   ExtractedMetadataSchema,
@@ -166,11 +170,11 @@ export class ExcelExtractionAgentClient {
     structure: StructureAnalysis
   ): Promise<{ transactions: ExtractedTransaction[]; source: string }> {
     const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-    const cellRows = this.sheetRows(firstSheet, true).slice(
+    const { transactions: fromCells, displayedRows } = readSheetTransactions(
+      firstSheet,
+      structure.columnMappings,
       structure.dataStartRow
     );
-
-    const fromCells = parseTransactionRows(cellRows, structure.columnMappings);
     if (fromCells.length > 0) {
       logger.info("Transactions read from cells", {
         requestId: context.requestId,
@@ -184,11 +188,8 @@ export class ExcelExtractionAgentClient {
       columnMappings: structure.columnMappings,
       dataStartRow: structure.dataStartRow,
     });
-    const textRows = this.sheetRows(firstSheet, false).slice(
-      structure.dataStartRow
-    );
     const formattedData = this.formatRowsForAI(
-      textRows,
+      displayedRows,
       structure.columnMappings
     );
 
@@ -205,10 +206,6 @@ export class ExcelExtractionAgentClient {
     };
   }
 
-  private sheetRows(sheet: ExcelSheet, raw: boolean): ExcelRowData[] {
-    return XLSX.utils.sheet_to_json(sheet, { header: 1, raw }) as ExcelRowData[];
-  }
-
   /**
    * A statement that states its own total lets the extraction be checked
    * against it: the expense rows must add up to it. A mismatch is reported,
@@ -221,7 +218,7 @@ export class ExcelExtractionAgentClient {
     context: ProcessingContext
   ): string {
     const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-    const titleRows = this.sheetRows(firstSheet, true).slice(
+    const titleRows = sheetRows(firstSheet, true).slice(
       0,
       structure.dataStartRow
     );
@@ -485,7 +482,7 @@ Analyze this Excel file structure and identify:
 
 1. Header row location (0-based index)
 2. Data start row (0-based index, first row with actual transaction data)
-3. Column mappings for: date, description, amount (0-based column indices). When the sheet has both an original transaction amount and a separate charged/billed amount column, map amount to the original and chargedAmount to the billed one; otherwise set chargedAmount to null
+3. Column mappings for: date, description, amount (0-based column indices). When the sheet has both an original transaction amount and a separate charged/billed amount column, map amount to the original and chargedAmount to the billed one; otherwise set chargedAmount to null. If a separate column names the currency of an amount (e.g. "מטבע עסקה" / "USD"), map it as currency (original) or chargedCurrency (billed); otherwise set them to null
 4. File format type (American Express, Visa, Mastercard, CAL, Bank statement, etc.)
 5. Any special formatting or patterns
 
