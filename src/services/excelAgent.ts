@@ -9,7 +9,11 @@ import {
   ProcessingContext,
 } from "../types";
 import { logger } from "../utils/logger";
-import { findStatedTotal, parseTransactionRows } from "./rowParser";
+import {
+  findStatedTotal,
+  readSheetTransactions,
+  sheetRows,
+} from "./rowParser";
 import {
   ExtractedTransactionSchema,
   ExtractedMetadataSchema,
@@ -166,18 +170,10 @@ export class ExcelExtractionAgentClient {
     structure: StructureAnalysis
   ): Promise<{ transactions: ExtractedTransaction[]; source: string }> {
     const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-    const cellRows = this.sheetRows(firstSheet, true).slice(
-      structure.dataStartRow
-    );
-
-    const displayedRows = this.sheetRows(firstSheet, false).slice(
-      structure.dataStartRow
-    );
-
-    const fromCells = parseTransactionRows(
-      cellRows,
+    const { transactions: fromCells, displayedRows } = readSheetTransactions(
+      firstSheet,
       structure.columnMappings,
-      displayedRows
+      structure.dataStartRow
     );
     if (fromCells.length > 0) {
       logger.info("Transactions read from cells", {
@@ -210,10 +206,6 @@ export class ExcelExtractionAgentClient {
     };
   }
 
-  private sheetRows(sheet: ExcelSheet, raw: boolean): ExcelRowData[] {
-    return XLSX.utils.sheet_to_json(sheet, { header: 1, raw }) as ExcelRowData[];
-  }
-
   /**
    * A statement that states its own total lets the extraction be checked
    * against it: the expense rows must add up to it. A mismatch is reported,
@@ -226,7 +218,7 @@ export class ExcelExtractionAgentClient {
     context: ProcessingContext
   ): string {
     const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-    const titleRows = this.sheetRows(firstSheet, true).slice(
+    const titleRows = sheetRows(firstSheet, true).slice(
       0,
       structure.dataStartRow
     );

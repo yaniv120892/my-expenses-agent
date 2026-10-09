@@ -90,8 +90,10 @@ additive and optional, so a consumer reading only `value` is unaffected:
   (its symbol, its number format, or a mapped currency column) names one
   unambiguously. A bare `$` is USD; absent means the statement's own currency.
 - `currencyAmbiguous: true` — the row's currency cannot be told: a symbol that
-  names several currencies (`¥`, `kr`, `C$`), or an unlabelled amount with no
-  billed amount on a statement that carries foreign charges. A consumer must
+  names several currencies (`¥`, `kr`, `C$`, `דולר קנדי`), or an unlabelled
+  amount with no billed amount on a statement that has a billed column and a
+  row naming a foreign currency (an instalment's differing amounts are both
+  ILS and do not count). A consumer must
   not treat such a row's `value` as the statement currency.
 
 ### GET /api/health

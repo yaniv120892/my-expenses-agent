@@ -3,16 +3,17 @@ export type CurrencyDetection =
   | { kind: "code"; code: string }
   | { kind: "ambiguous"; marker: string };
 
-// Israeli issuers print a bare "$" for US dollars and spell other dollars out
-// by code, so a bare "$" resolves to USD while "C$" or "R$" stays ambiguous,
-// as do "¥" and "kr", each of which names several currencies.
+// Israeli issuers print a bare "$" for US dollars and spell other dollars out,
+// so a bare "$" or "דולר" resolves to USD while "C$" or "דולר קנדי" stays
+// ambiguous, as do "¥" and "kr", each of which names several currencies.
 const MARKERS: { pattern: RegExp; code: string | null }[] = [
   { pattern: /(?<![A-Z])(?!US\$)[A-Z]{1,2}\$/u, code: null },
   { pattern: /US\$|\$/u, code: "USD" },
   { pattern: /₪|ש["״']?ח|\bNIS\b/iu, code: "ILS" },
   { pattern: /€|אירו|יורו/u, code: "EUR" },
   { pattern: /£|ליש["״']?ט/u, code: "GBP" },
-  { pattern: /דולר/u, code: "USD" },
+  { pattern: /דולר(?!\s*[א-ת])|דולר\s*(?:ארה|אמריקאי)/u, code: "USD" },
+  { pattern: /דולר\s*(?!ארה|אמריקאי)[א-ת]/u, code: null },
   { pattern: /¥|\bkr\b/iu, code: null },
 ];
 
@@ -31,7 +32,9 @@ export function detectCurrency(text: string): CurrencyDetection {
     }
   }
 
-  const textWithoutCodes = text.replace(ISO_CODE, "");
+  const textWithoutCodes = text.replace(ISO_CODE, (word) =>
+    KNOWN_ISO_CODES.has(word) ? "" : word
+  );
   for (const { pattern, code } of MARKERS) {
     const match = textWithoutCodes.match(pattern);
     if (!match) {

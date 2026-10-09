@@ -1,8 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import * as XLSX from "xlsx";
 import { detectCurrency } from "./currency";
 import {
   findStatedTotal,
+  readSheetTransactions,
   parseCellAmount,
   parseCellDate,
   parseTransactionRows,
@@ -164,13 +166,44 @@ describe("parseTransactionRows currency", () => {
         [46242, "Foreign Merchant", 25, 92.35],
         [46243, "Refund", -10, null],
       ],
-      CAL_MAPPINGS
+      CAL_MAPPINGS,
+      [
+        ["08/08/2026", "Foreign Merchant", "$25.00", "92.35"],
+        ["09/08/2026", "Refund", "-10.00", ""],
+      ]
     );
     assert.equal(transactions[1].type, "INCOME");
     assert.equal(transactions[1].originalAmount, 10);
     assert.equal(transactions[1].chargedAmount, undefined);
     assert.equal(transactions[1].currencyAmbiguous, true);
     assert.equal(transactions[0].currencyAmbiguous, undefined);
+  });
+
+  it("does not let an instalment make the statement look foreign", () => {
+    const transactions = parseTransactionRows(
+      [
+        [46242, "Sofa", 1200, 400],
+        [46243, "Refund", -50, null],
+      ],
+      CAL_MAPPINGS
+    );
+    assert.equal(transactions[1].currencyAmbiguous, undefined);
+  });
+
+  it("does not flag unlabelled rows on a statement with no billed column", () => {
+    const transactions = parseTransactionRows(
+      [
+        [46242, "Foreign Merchant", 25],
+        [46243, "Shop", 40],
+      ],
+      { date: 0, description: 1, amount: 2 },
+      [
+        ["08/08/2026", "Foreign Merchant", "$25.00"],
+        ["09/08/2026", "Shop", "40.00"],
+      ]
+    );
+    assert.equal(transactions[0].originalCurrency, "USD");
+    assert.equal(transactions[1].currencyAmbiguous, undefined);
   });
 
   it("does not flag an unlabelled refund on a single-currency statement", () => {
@@ -203,6 +236,33 @@ describe("parseTransactionRows currency", () => {
     assert.equal(transaction.originalCurrency, undefined);
     assert.equal(transaction.currencyAmbiguous, true);
     assert.equal(transaction.value, 30.5);
+  });
+});
+
+describe("readSheetTransactions", () => {
+  it("reads the currency a numeric cell carries only in its number format", () => {
+    const sheet = XLSX.utils.aoa_to_sheet([
+      ["date", "merchant", "amount", "billed"],
+      [46242, "Foreign Merchant", 25, 92.35],
+    ]);
+    sheet["C2"].z = '"$"#,##0.00';
+    sheet["D2"].z = "[$₪-40D] #,##0.00";
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, "statement");
+    const reread = XLSX.read(
+      XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }),
+      { type: "buffer" }
+    );
+
+    const { transactions } = readSheetTransactions(
+      reread.Sheets.statement,
+      CAL_MAPPINGS,
+      1
+    );
+
+    assert.equal(transactions[0].originalCurrency, "USD");
+    assert.equal(transactions[0].chargedCurrency, "ILS");
+    assert.equal(transactions[0].value, 92.35);
   });
 });
 
@@ -248,5 +308,14 @@ describe("detectCurrency", () => {
 
   it("ignores three-letter words that are not currencies", () => {
     assert.deepEqual(detectCurrency("ABC"), { kind: "none" });
+    assert.deepEqual(detectCurrency("12.00 NIS"), { kind: "code", code: "ILS" });
+  });
+
+  it("reads only an unqualified or American dollar as USD", () => {
+    assert.deepEqual(detectCurrency("100 דולר"), { kind: "code", code: "USD" });
+    assert.deepEqual(detectCurrency('דולר ארה"ב'), { kind: "code", code: "USD" });
+    assert.deepEqual(detectCurrency("דולר אמריקאי"), { kind: "code", code: "USD" });
+    assert.equal(detectCurrency("דולר קנדי").kind, "ambiguous");
+    assert.equal(detectCurrency("דולר אוסטרלי").kind, "ambiguous");
   });
 });
