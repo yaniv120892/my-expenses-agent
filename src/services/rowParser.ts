@@ -32,7 +32,6 @@ export function parseTransactionRows(
 type ParsedRow = {
   date: string;
   description: string;
-  // The billed amount when there is one, else the original; never zero.
   amount: number;
   originalAmount: number | null;
   chargedAmount: number | null;

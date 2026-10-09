@@ -20,10 +20,7 @@ const ISO_CODE = /\b[A-Z]{3}\b/g;
 const KNOWN_ISO_CODES = new Set(Intl.supportedValuesOf("currency"));
 const ANY_CURRENCY_SYMBOL = /\p{Sc}/u;
 
-/**
- * The currency a cell's text names, by ISO code or symbol. Text that names
- * two different currencies, or a symbol shared by several, is ambiguous.
- */
+/** Text naming two different currencies, or a symbol shared by several, is ambiguous. */
 export function detectCurrency(text: string): CurrencyDetection {
   const codes = new Set<string>();
   let ambiguousMarker: string | null = null;
