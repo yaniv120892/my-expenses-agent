@@ -47,12 +47,12 @@ export function detectCurrency(text: string): CurrencyDetection {
     }
   }
 
-  const hasUnknownSymbol =
-    codes.size === 0 &&
-    ambiguousMarker === null &&
-    ANY_CURRENCY_SYMBOL.test(textWithoutCodes);
-  if (hasUnknownSymbol) {
-    ambiguousMarker = textWithoutCodes.match(ANY_CURRENCY_SYMBOL)?.[0] ?? "";
+  const nothingRecognised = codes.size === 0 && ambiguousMarker === null;
+  const unknownSymbol = nothingRecognised
+    ? textWithoutCodes.match(ANY_CURRENCY_SYMBOL)?.[0]
+    : undefined;
+  if (unknownSymbol) {
+    ambiguousMarker = unknownSymbol;
   }
 
   if (ambiguousMarker !== null || codes.size > 1) {

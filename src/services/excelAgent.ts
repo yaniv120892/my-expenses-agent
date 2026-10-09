@@ -192,11 +192,8 @@ export class ExcelExtractionAgentClient {
       columnMappings: structure.columnMappings,
       dataStartRow: structure.dataStartRow,
     });
-    const textRows = this.sheetRows(firstSheet, false).slice(
-      structure.dataStartRow
-    );
     const formattedData = this.formatRowsForAI(
-      textRows,
+      displayedRows,
       structure.columnMappings
     );
 

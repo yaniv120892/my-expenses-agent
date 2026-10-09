@@ -32,6 +32,8 @@ export function parseTransactionRows(
 type ParsedRow = {
   date: string;
   description: string;
+  // The billed amount when there is one, else the original; never zero.
+  amount: number;
   originalAmount: number | null;
   chargedAmount: number | null;
   originalCurrency: CurrencyDetection;
@@ -47,6 +49,9 @@ function parseRow(
   const description = parseCellText(row[mappings.description]);
   const originalAmount = parseCellAmount(row[mappings.amount]);
   const chargedAmount = parseCellAmount(cellAt(row, mappings.chargedAmount));
+  // A statement that bills in a different currency than it charges carries
+  // both amounts; the billed one is what the account actually paid. A refund
+  // may leave the billed cell empty and carry a negative charged amount.
   const amount = chargedAmount ?? originalAmount;
 
   if (date === null || description === "" || amount === null || amount === 0) {
@@ -56,6 +61,7 @@ function parseRow(
   return {
     date,
     description,
+    amount,
     originalAmount,
     chargedAmount,
     originalCurrency: detectCellCurrency(textRow, mappings.currency, mappings.amount),
@@ -71,15 +77,11 @@ function toExtractedTransaction(
   parsed: ParsedRow,
   statementHasForeignRows: boolean
 ): ExtractedTransaction {
-  // A statement that bills in a different currency than it charges carries
-  // both amounts; the billed one is what the account actually paid. A refund
-  // may leave the billed cell empty and carry a negative charged amount.
-  const amount = parsed.chargedAmount ?? parsed.originalAmount ?? 0;
   const transaction: ExtractedTransaction = {
     date: parsed.date,
     description: parsed.description,
-    value: roundToCents(Math.abs(amount)),
-    type: amount < 0 ? "INCOME" : "EXPENSE",
+    value: roundToCents(Math.abs(parsed.amount)),
+    type: parsed.amount < 0 ? "INCOME" : "EXPENSE",
     rawData: {},
   };
 
